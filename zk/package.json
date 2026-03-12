@@ -4,6 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "prepare": "cd .. && husky .husky",
     "test": "echo \"Error: no test specified\" && exit 1",
     "compile": "cd scripts && chmod +x compile.sh && ./compile.sh",
     "compile:all": "npm run compile:hello && npm run compile:username_hash && npm run compile:merkle_path && npm run compile:merkle_inclusion && npm run compile:merkle_update && npm run compile:username_merkle",
