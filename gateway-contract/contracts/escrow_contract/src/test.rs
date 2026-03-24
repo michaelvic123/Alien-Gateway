@@ -254,14 +254,7 @@ fn test_auto_pay_early_trigger_panics() {
         &token,
         1000,
     );
-    create_vault(
-        &env,
-        &contract_id,
-        &to,
-        &Address::generate(&env),
-        &token,
-        0,
-    );
+    create_vault(&env, &contract_id, &to, &Address::generate(&env), &token, 0);
 
     client.setup_auto_pay(&from, &to, &100i128, &10u64);
     env.ledger().set_timestamp(9);
@@ -282,14 +275,7 @@ fn test_auto_pay_second_cycle_success() {
         &token,
         1000,
     );
-    create_vault(
-        &env,
-        &contract_id,
-        &to,
-        &Address::generate(&env),
-        &token,
-        0,
-    );
+    create_vault(&env, &contract_id, &to, &Address::generate(&env), &token, 0);
 
     client.setup_auto_pay(&from, &to, &150i128, &10u64);
 
@@ -328,14 +314,7 @@ fn test_auto_pay_insufficient_balance_panics() {
         &token,
         90,
     );
-    create_vault(
-        &env,
-        &contract_id,
-        &to,
-        &Address::generate(&env),
-        &token,
-        0,
-    );
+    create_vault(&env, &contract_id, &to, &Address::generate(&env), &token, 0);
 
     client.setup_auto_pay(&from, &to, &100i128, &10u64);
     env.ledger().set_timestamp(10);
