@@ -14,10 +14,12 @@ pub use crate::errors::ContractError;
 pub use crate::events::{MerkleRootUpdated, UsernameRegistered};
 pub use crate::types::{Proof, PublicSignals};
 pub mod events;
+pub mod types;
 
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, panic_with_error, Address, BytesN, Env,
 };
+use types::ResolveData;
 
 #[contract]
 pub struct CoreContract;
@@ -36,6 +38,10 @@ fn update_merkle_root(env: &Env, old_root: BytesN<32>, new_root: BytesN<32>) {
     storage::set_merkle_root(env, &new_root);
 
     MerkleRootUpdated { old_root, new_root }.publish(env);
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum ResolverError {
+    NotFound = 1,
 }
 
 #[contractimpl]
@@ -73,6 +79,24 @@ impl CoreContract {
 
         UsernameRegistered {
             commitment: public_signals.commitment,
+    pub fn set_memo(env: Env, commitment: BytesN<32>, memo_id: u64) {
+        let key = DataKey::Resolver(commitment);
+        let mut data = env
+            .storage()
+            .persistent()
+            .get::<DataKey, ResolveData>(&key)
+            .unwrap_or_else(|| panic_with_error!(&env, ResolverError::NotFound));
+
+        data.memo = Some(memo_id);
+        env.storage().persistent().set(&key, &data);
+    }
+
+    pub fn resolve(env: Env, commitment: BytesN<32>) -> (Address, Option<u64>) {
+        let key = DataKey::Resolver(commitment);
+
+        match env.storage().persistent().get::<DataKey, ResolveData>(&key) {
+            Some(data) => (data.wallet, data.memo),
+            None => panic_with_error!(&env, ResolverError::NotFound),
         }
         .publish(&env);
     }
@@ -89,3 +113,6 @@ impl CoreContract {
         storage::has_commitment(&env, &commitment)
     }
 }
+
+#[cfg(test)]
+mod test;
