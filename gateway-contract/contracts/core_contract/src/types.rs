@@ -12,3 +12,11 @@ pub struct ResolveData {
     pub wallet: Address,
     pub memo: Option<u64>,
 }
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ChainType {
+    Evm,
+    Bitcoin,
+    Solana,
+}

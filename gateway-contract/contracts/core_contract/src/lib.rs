@@ -1,12 +1,22 @@
 #![no_std]
 
+pub mod address_manager;
+pub mod errors;
 pub mod events;
+pub mod registration;
 pub mod types;
 
+#[cfg(test)]
+mod test;
+
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, panic_with_error, Address, BytesN, Env,
+    contract, contracterror, contractimpl, contracttype, panic_with_error, Address, Bytes, BytesN,
+    Env,
 };
-use types::ResolveData;
+
+use address_manager::AddressManager;
+use registration::Registration;
+use types::{ChainType, ResolveData};
 
 #[contract]
 pub struct Contract;
@@ -52,7 +62,35 @@ impl Contract {
             None => panic_with_error!(&env, ResolverError::NotFound),
         }
     }
-}
 
-#[cfg(test)]
-mod test;
+    /// Register a username commitment, mapping it to the caller's address.
+    pub fn register(env: Env, caller: Address, commitment: BytesN<32>) {
+        Registration::register(env, caller, commitment);
+    }
+
+    /// Get the owner address for a registered commitment.
+    pub fn get_owner(env: Env, commitment: BytesN<32>) -> Option<Address> {
+        Registration::get_owner(env, commitment)
+    }
+
+    /// Link an external chain address (EVM / Bitcoin / Solana) to a username commitment.
+    /// Only the registered owner of the commitment may call this.
+    pub fn add_chain_address(
+        env: Env,
+        caller: Address,
+        username_hash: BytesN<32>,
+        chain: ChainType,
+        address: Bytes,
+    ) {
+        AddressManager::add_chain_address(env, caller, username_hash, chain, address);
+    }
+
+    /// Retrieve a previously stored chain address for a commitment.
+    pub fn get_chain_address(
+        env: Env,
+        username_hash: BytesN<32>,
+        chain: ChainType,
+    ) -> Option<Bytes> {
+        AddressManager::get_chain_address(env, username_hash, chain)
+    }
+}
