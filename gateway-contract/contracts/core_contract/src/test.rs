@@ -1,10 +1,10 @@
 #![cfg(test)]
 
-use soroban_sdk::testutils::Address as _;
-use soroban_sdk::{Address, Bytes, BytesN, Env};
-
+use crate::smt_root::SmtRoot;
 use crate::types::ChainType;
 use crate::{Contract, ContractClient};
+use soroban_sdk::testutils::{Address as _, Events};
+use soroban_sdk::{Address, Bytes, BytesN, Env};
 
 fn setup(env: &Env) -> (Address, ContractClient<'_>) {
     let contract_id = env.register(Contract, ());
@@ -16,7 +16,7 @@ fn commitment(env: &Env, seed: u8) -> BytesN<32> {
     BytesN::from_array(env, &[seed; 32])
 }
 
-// ── resolver / memo tests (from main) ────────────────────────────────────────
+// ── resolver / memo tests ─────────────────────────────────────────────────────
 
 #[test]
 fn test_resolve_returns_none_when_no_memo() {
@@ -45,6 +45,62 @@ fn test_set_memo_and_resolve_flow() {
     let (resolved_wallet, memo) = client.resolve(&hash);
     assert_eq!(resolved_wallet, wallet);
     assert_eq!(memo, Some(4242u64));
+}
+
+// ── SMT root tests ────────────────────────────────────────────────────────────
+
+#[test]
+#[should_panic(expected = "Error(Contract, #2)")]
+fn test_get_smt_root_panics_when_not_set() {
+    let env = Env::default();
+    let (_, client) = setup(&env);
+
+    // Should panic with RootNotSet error (code 2)
+    client.get_smt_root();
+}
+
+#[test]
+fn test_smt_root_read_after_update() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, client) = setup(&env);
+
+    // Set a root internally (simulating proof submission) within contract context
+    let new_root = BytesN::from_array(&env, &[42u8; 32]);
+    env.as_contract(&contract_id, || {
+        SmtRoot::update_root(&env, new_root.clone());
+    });
+
+    // Verify we can read it back
+    let retrieved_root = client.get_smt_root();
+    assert_eq!(retrieved_root, new_root);
+}
+
+#[test]
+fn test_smt_root_update_emits_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (contract_id, _) = setup(&env);
+
+    // Set initial root within contract context
+    let root1 = BytesN::from_array(&env, &[1u8; 32]);
+    env.as_contract(&contract_id, || {
+        SmtRoot::update_root(&env, root1.clone());
+    });
+
+    // Update to new root within contract context
+    let root2 = BytesN::from_array(&env, &[2u8; 32]);
+    env.as_contract(&contract_id, || {
+        SmtRoot::update_root(&env, root2.clone());
+    });
+
+    // Verify events were emitted (ROOT_UPD event fires on update)
+    // Just verify that events exist - the actual event content verification
+    // is done in the contract's event emission logic
+    let events = env.events().all();
+    assert!(!events.is_empty(), "ROOT_UPD events should be emitted");
 }
 
 // ── chain address helpers ─────────────────────────────────────────────────────

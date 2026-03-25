@@ -4,62 +4,59 @@ pub mod address_manager;
 pub mod errors;
 pub mod events;
 pub mod registration;
+pub mod smt_root;
+pub mod storage;
 pub mod types;
 
 #[cfg(test)]
 mod test;
 
-use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, panic_with_error, Address, Bytes, BytesN,
-    Env,
-};
-
 use address_manager::AddressManager;
+use errors::CoreError;
 use registration::Registration;
+use soroban_sdk::{contract, contractimpl, panic_with_error, Address, Bytes, BytesN, Env};
 use types::{ChainType, ResolveData};
 
 #[contract]
 pub struct Contract;
 
-#[contracttype]
-#[derive(Clone)]
-pub enum DataKey {
-    Resolver(BytesN<32>),
-}
-
-#[contracterror]
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum ResolverError {
-    NotFound = 1,
-}
-
 #[contractimpl]
 impl Contract {
-    pub fn register_resolver(env: Env, commitment: BytesN<32>, wallet: Address, memo: Option<u64>) {
-        let key = DataKey::Resolver(commitment);
-        let data = ResolveData { wallet, memo };
+    /// Get the current SMT root.
+    /// Returns the current root if set, otherwise panics with RootNotSet error.
+    pub fn get_smt_root(env: Env) -> BytesN<32> {
+        smt_root::SmtRoot::get_root(env.clone())
+            .unwrap_or_else(|| panic_with_error!(&env, CoreError::RootNotSet))
+    }
 
-        env.storage().persistent().set(&key, &data);
+    pub fn register_resolver(env: Env, commitment: BytesN<32>, wallet: Address, memo: Option<u64>) {
+        let data = ResolveData { wallet, memo };
+        env.storage()
+            .persistent()
+            .set(&storage::DataKey::Resolver(commitment), &data);
     }
 
     pub fn set_memo(env: Env, commitment: BytesN<32>, memo_id: u64) {
-        let key = DataKey::Resolver(commitment);
         let mut data = env
             .storage()
             .persistent()
-            .get::<DataKey, ResolveData>(&key)
-            .unwrap_or_else(|| panic_with_error!(&env, ResolverError::NotFound));
+            .get::<storage::DataKey, ResolveData>(&storage::DataKey::Resolver(commitment.clone()))
+            .unwrap_or_else(|| panic_with_error!(&env, CoreError::NotFound));
 
         data.memo = Some(memo_id);
-        env.storage().persistent().set(&key, &data);
+        env.storage()
+            .persistent()
+            .set(&storage::DataKey::Resolver(commitment), &data);
     }
 
     pub fn resolve(env: Env, commitment: BytesN<32>) -> (Address, Option<u64>) {
-        let key = DataKey::Resolver(commitment);
-
-        match env.storage().persistent().get::<DataKey, ResolveData>(&key) {
+        match env
+            .storage()
+            .persistent()
+            .get::<storage::DataKey, ResolveData>(&storage::DataKey::Resolver(commitment))
+        {
             Some(data) => (data.wallet, data.memo),
-            None => panic_with_error!(&env, ResolverError::NotFound),
+            None => panic_with_error!(&env, CoreError::NotFound),
         }
     }
 
