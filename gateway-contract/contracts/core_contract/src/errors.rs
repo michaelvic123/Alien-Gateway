@@ -16,6 +16,10 @@ pub enum CoreError {
     InvalidProof = 5,
     /// The username is registered but has no primary Stellar address linked.
     NoAddressLinked = 6,
+    /// Caller is not the registered owner of the commitment.
+    Unauthorized = 7,
+    /// new_owner is the same as the current owner.
+    SameOwner = 8,
 }
 
 #[contracterror]

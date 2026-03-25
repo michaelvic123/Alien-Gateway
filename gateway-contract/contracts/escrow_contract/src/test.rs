@@ -57,6 +57,15 @@ fn create_vault(
     });
 }
 
+fn read_vault(env: &Env, contract_id: &Address, id: &BytesN<32>) -> VaultState {
+    env.as_contract(contract_id, || {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Vault(id.clone()))
+            .unwrap()
+    })
+}
+
 #[test]
 fn test_schedule_payment_success() {
     let env = Env::default();

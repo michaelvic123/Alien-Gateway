@@ -5,6 +5,7 @@ use soroban_sdk::{contract, contractimpl, IntoVal, Symbol, TryFromVal, Val, Vec}
 use soroban_sdk::{Address, BytesN, Env};
 
 use crate::errors::FactoryError;
+use crate::events::USERNAME_DEPLOYED;
 use crate::{FactoryContract, FactoryContractClient};
 
 #[contract]
@@ -58,17 +59,16 @@ fn deploy_username_stores_record_and_emits_event() {
 
     let (event_contract, topics, data) = events.get(0).unwrap();
     assert_eq!(event_contract, factory_id);
-    assert_eq!(topics.len(), 3);
+    assert_eq!(topics.len(), 1);
 
     let event_name = Symbol::try_from_val(&env, &topics.get(0).unwrap()).unwrap();
-    let event_hash = BytesN::<32>::try_from_val(&env, &topics.get(1).unwrap()).unwrap();
-    let event_owner = Address::try_from_val(&env, &topics.get(2).unwrap()).unwrap();
-    let event_record = crate::types::UsernameRecord::try_from_val(&env, &data).unwrap();
+    let (event_hash, event_owner, event_registered_at) =
+        <(BytesN<32>, Address, u64)>::try_from_val(&env, &data).unwrap();
 
-    assert_eq!(event_name, Symbol::new(&env, "USERNAME_DEPLOYED"));
+    assert_eq!(event_name, USERNAME_DEPLOYED);
     assert_eq!(event_hash, hash);
     assert_eq!(event_owner, owner);
-    assert_eq!(event_record, record);
+    assert_eq!(event_registered_at, record.registered_at);
 }
 
 #[test]
@@ -137,4 +137,35 @@ fn non_registered_auction_auth_is_rejected() {
 
     assert!(result.is_err());
     assert_ne!(wrong_caller, auction_contract);
+}
+
+#[test]
+fn get_username_owner_returns_owner_after_deploy() {
+    let env = Env::default();
+    let (factory_id, factory, auction_contract, _) = setup_factory(&env);
+    let owner = Address::generate(&env);
+    let hash = username_hash(&env);
+    let deploy_args: Vec<Val> = (hash.clone(), owner.clone()).into_val(&env);
+
+    env.mock_auths(&[MockAuth {
+        address: &auction_contract,
+        invoke: &MockAuthInvoke {
+            contract: &factory_id,
+            fn_name: "deploy_username",
+            args: deploy_args,
+            sub_invokes: &[],
+        },
+    }]);
+    factory.deploy_username(&hash, &owner);
+
+    assert_eq!(factory.get_username_owner(&hash), Some(owner));
+}
+
+#[test]
+fn get_username_owner_returns_none_for_unregistered_hash() {
+    let env = Env::default();
+    let (_, factory, _, _) = setup_factory(&env);
+    let unknown_hash = BytesN::from_array(&env, &[0xFF; 32]);
+
+    assert_eq!(factory.get_username_owner(&unknown_hash), None);
 }
