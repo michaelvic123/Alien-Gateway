@@ -800,3 +800,87 @@ fn test_invalid_cosmos_address_too_short_panics() {
         &Bytes::from_slice(&env, b"cosmos123"),
     );
 }
+
+// ============================================================================
+// SMT Root Tests
+// ============================================================================
+
+#[test]
+fn test_get_root_returns_none_before_set() {
+    let env = Env::default();
+    let (contract_id, _) = setup(&env);
+    
+    // The client unwrap/panics if empty, so we test the underlying SmtRoot 
+    // directly inside the contract context to verify it safely returns None.
+    env.as_contract(&contract_id, || {
+        assert_eq!(SmtRoot::get_root(env.clone()), None);
+    });
+}
+
+#[test]
+fn test_update_root_stores_new_root() {
+    let env = Env::default();
+    let (contract_id, client) = setup(&env);
+    let new_root = BytesN::from_array(&env, &[2u8; 32]);
+
+    env.as_contract(&contract_id, || {
+        SmtRoot::update_root(&env, new_root.clone());
+    });
+
+    // The client returns BytesN<32> directly, so we drop the Some()
+    assert_eq!(client.get_smt_root(), new_root);
+}
+
+#[test]
+fn test_update_root_emits_event() {
+    let env = Env::default();
+    let (contract_id, _client) = setup(&env);
+    let new_root = BytesN::from_array(&env, &[3u8; 32]);
+
+    env.as_contract(&contract_id, || {
+        SmtRoot::update_root(&env, new_root.clone());
+    });
+
+    let events = env.events().all();
+    let last_event = events.last().expect("No events emitted");
+
+    use soroban_sdk::{IntoVal, TryFromVal};
+
+    assert_eq!(last_event.0, contract_id);
+    
+    // Decode the Val back into a Symbol to properly compare it
+    let event_name = Symbol::try_from_val(&env, &last_event.1.get(0).unwrap()).unwrap();
+    assert_eq!(event_name, Symbol::new(&env, "ROOT_UPD"));
+    
+    let (old, new): (Option<BytesN<32>>, BytesN<32>) = last_event.2.into_val(&env);
+    assert_eq!(old, None);
+    assert_eq!(new, new_root);
+}
+
+#[test]
+fn test_update_root_non_owner_panics() {
+    let env = Env::default();
+    let (contract_id, _client) = setup(&env);
+    let non_owner = Address::generate(&env);
+    let root = BytesN::from_array(&env, &[4u8; 32]);
+
+    use soroban_sdk::IntoVal;
+
+    env.mock_auths(&[soroban_sdk::testutils::MockAuth {
+        address: &non_owner,
+        invoke: &soroban_sdk::testutils::MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "update_smt_root",
+            args: (root.clone(),).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+
+    let result = env.try_invoke_contract::<(), soroban_sdk::Error>(
+        &contract_id,
+        &Symbol::new(&env, "update_smt_root"),
+        (root,).into_val(&env),
+    );
+    
+    assert!(result.is_err());
+}
