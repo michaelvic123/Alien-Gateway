@@ -6,7 +6,26 @@ use crate::EscrowContract;
 use crate::EscrowContractClient;
 use soroban_sdk::testutils::{Address as _, Events as _, Ledger};
 use soroban_sdk::token::{Client as TokenClient, StellarAssetClient};
-use soroban_sdk::{Address, BytesN, Env, Error};
+use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, Error};
+
+// ---------------------------------------------------------------------------
+// Mock Registration contract — exposes get_owner / set_owner for tests.
+// ---------------------------------------------------------------------------
+#[contract]
+pub struct MockRegistrationContract;
+
+#[contractimpl]
+impl MockRegistrationContract {
+    /// Seed an owner for a commitment (no auth required — test helper only).
+    pub fn set_owner(env: Env, commitment: BytesN<32>, owner: Address) {
+        env.storage().persistent().set(&commitment, &owner);
+    }
+
+    /// Mirror of the real Registration::get_owner interface.
+    pub fn get_owner(env: Env, commitment: BytesN<32>) -> Option<Address> {
+        env.storage().persistent().get(&commitment)
+    }
+}
 
 fn setup_test(
     env: &Env,
@@ -291,6 +310,126 @@ fn test_execute_scheduled_early_panics() {
         result,
         Err(Ok(err)) if err == Error::from_contract_error(EscrowError::PaymentNotYetDue as u32)
     ));
+}
+
+// ---------------------------------------------------------------------------
+// create_vault tests
+// ---------------------------------------------------------------------------
+
+/// Deploys a MockRegistrationContract, seeds `owner` for `commitment`, then
+/// returns (escrow_client, reg_id, owner, token, commitment).
+fn setup_with_registration<'a>(
+    env: &'a Env,
+    commitment_seed: u8,
+) -> (
+    EscrowContractClient<'a>,
+    Address,
+    Address,
+    Address,
+    BytesN<32>,
+) {
+    let reg_id = env.register(MockRegistrationContract, ());
+    let reg_client = MockRegistrationContractClient::new(env, &reg_id);
+
+    let commitment = BytesN::from_array(env, &[commitment_seed; 32]);
+    let owner = Address::generate(env);
+    let token_admin = Address::generate(env);
+    let token = env.register_stellar_asset_contract(token_admin);
+
+    reg_client.set_owner(&commitment, &owner);
+
+    let escrow_id = env.register(EscrowContract, ());
+    let client = EscrowContractClient::new(env, &escrow_id);
+    let admin = Address::generate(env);
+    client.initialize(&admin, &reg_id);
+
+    (client, escrow_id, owner, token, commitment)
+}
+
+#[test]
+fn test_create_vault_success() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, escrow_id, owner, token, commitment) = setup_with_registration(&env, 0xAA);
+
+    client.create_vault(&commitment, &token);
+
+    // Verify VaultConfig persisted correctly.
+    env.as_contract(&escrow_id, || {
+        let config: VaultConfig = env
+            .storage()
+            .persistent()
+            .get(&DataKey::VaultConfig(commitment.clone()))
+            .unwrap();
+        assert_eq!(config.owner, owner);
+        assert_eq!(config.token, token);
+
+        // Verify VaultState persisted correctly.
+        let state: VaultState = env
+            .storage()
+            .persistent()
+            .get(&DataKey::VaultState(commitment.clone()))
+            .unwrap();
+        assert_eq!(state.balance, 0);
+        assert!(state.is_active);
+    });
+
+    // Event emission is validated by the existing VaultCrtEvent publish call inside
+    // create_vault. In native test mode with env.invoke_contract cross-calls the
+    // outer contract's events are not surfaced via env.events().all(), so we rely
+    // on the storage assertions above to confirm correct execution.
+}
+
+#[test]
+fn test_create_vault_already_exists() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _, _, token, commitment) = setup_with_registration(&env, 0xBB);
+
+    client.create_vault(&commitment, &token);
+
+    // Second call must panic with VaultAlreadyExists.
+    let result = client.try_create_vault(&commitment, &token);
+    assert!(matches!(
+        result,
+        Err(Ok(err)) if err == Error::from_contract_error(EscrowError::VaultAlreadyExists as u32)
+    ));
+}
+
+#[test]
+#[should_panic]
+fn test_create_vault_not_owner() {
+    let env = Env::default();
+    // No mock_all_auths: a caller who is NOT the registered owner cannot create
+    // the vault because owner.require_auth() will reject the transaction.
+
+    let reg_id = env.register(MockRegistrationContract, ());
+    let reg_client = MockRegistrationContractClient::new(&env, &reg_id);
+
+    let commitment = BytesN::from_array(&env, &[0xCCu8; 32]);
+    let owner = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let token = env.register_stellar_asset_contract(token_admin);
+
+    // set_owner has no require_auth, so it succeeds without auth mocking.
+    reg_client.set_owner(&commitment, &owner);
+
+    let escrow_id = env.register(EscrowContract, ());
+    let client = EscrowContractClient::new(&env, &escrow_id);
+
+    // Write the registration address directly into instance storage so we
+    // skip initialize (which now requires admin.require_auth()) and keep this
+    // test entirely auth-free — proving create_vault itself enforces the check.
+    env.as_contract(&escrow_id, || {
+        env.storage()
+            .instance()
+            .set(&DataKey::RegistrationContract, &reg_id);
+    });
+
+    // create_vault calls owner.require_auth() → panics because no auth is mocked.
+    client.create_vault(&commitment, &token);
 }
 
 #[test]

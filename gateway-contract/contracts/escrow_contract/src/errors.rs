@@ -8,6 +8,8 @@ pub enum EscrowError {
     InsufficientBalance = 1,
     /// The release timestamp must be in the future relative to the current ledger time.
     PastReleaseTime = 2,
+    /// The commitment is not registered in the Registration contract.
+    CommitmentNotRegistered = 3,
     /// The requested amount must be strictly greater than 0.
     InvalidAmount = 4,
     /// The specified vault commitment was not found in the persistent storage.
@@ -30,4 +32,8 @@ pub enum EscrowError {
     AutoPayNotFound = 13,
     /// The interval has not yet elapsed since the last payment.
     IntervalNotElapsed = 14,
+    /// A vault already exists for this commitment.
+    VaultAlreadyExists = 15,
+    /// The contract has already been initialized.
+    AlreadyInitialized = 16,
 }
