@@ -1,7 +1,7 @@
 use soroban_sdk::{contracttype, panic_with_error, Address, Bytes, BytesN, Env};
 
 use crate::errors::ChainAddressError;
-use crate::events::CHAIN_ADD;
+use crate::events::{CHAIN_ADD, CHAIN_REM};
 use crate::registration::DataKey as CommitmentKey;
 use crate::types::ChainType;
 
@@ -72,6 +72,43 @@ impl AddressManager {
         env.storage().persistent().get(&key)
     }
 
+    /// Remove a chain address for a registered username commitment.
+    ///
+    /// - `caller`        – must be the registered owner of `username_hash`
+    /// - `username_hash` – 32-byte Poseidon commitment of the username
+    /// - `chain`         – target chain to remove
+    ///
+    /// Emits `CHAIN_REM` event with `(username_hash, chain)`.
+    pub fn remove_chain_address(
+        env: Env,
+        caller: Address,
+        username_hash: BytesN<32>,
+        chain: ChainType,
+    ) {
+        // 1. Authenticate the caller.
+        caller.require_auth();
+
+        // 2. Verify the commitment is registered and caller is the owner.
+        let owner_key = CommitmentKey::Commitment(username_hash.clone());
+        let owner: Address = env
+            .storage()
+            .persistent()
+            .get(&owner_key)
+            .unwrap_or_else(|| panic_with_error!(&env, ChainAddressError::NotRegistered));
+
+        if owner != caller {
+            panic_with_error!(&env, ChainAddressError::Unauthorized);
+        }
+
+        // 3. Remove the chain address from storage.
+        let key = ChainAddrKey::ChainAddress(username_hash.clone(), chain.clone());
+        env.storage().persistent().remove(&key);
+
+        // 4. Emit event.
+        #[allow(deprecated)]
+        env.events().publish((CHAIN_REM,), (username_hash, chain));
+    }
+
     // ── Validation helpers ──────────────────────────────────────────────────
 
     fn validate_address(chain: &ChainType, address: &Bytes) -> bool {
@@ -87,6 +124,8 @@ impl AddressManager {
             ChainType::Bitcoin => (25..=62).contains(&len),
             // Solana: base58-encoded public key, typically 32–44 chars.
             ChainType::Solana => (32..=44).contains(&len),
+            // Cosmos: bech32-encoded address with prefix, typically 39–45 chars.
+            ChainType::Cosmos => (39..=45).contains(&len),
         }
     }
 }

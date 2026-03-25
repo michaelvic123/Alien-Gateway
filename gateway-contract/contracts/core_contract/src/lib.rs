@@ -70,7 +70,7 @@ impl Contract {
         Registration::get_owner(env, commitment)
     }
 
-    /// Link an external chain address (EVM / Bitcoin / Solana) to a username commitment.
+    /// Link an external chain address (EVM / Bitcoin / Solana / Cosmos) to a username commitment.
     /// Only the registered owner of the commitment may call this.
     pub fn add_chain_address(
         env: Env,
@@ -89,6 +89,17 @@ impl Contract {
         chain: ChainType,
     ) -> Option<Bytes> {
         AddressManager::get_chain_address(env, username_hash, chain)
+    }
+
+    /// Remove a chain address for a username commitment.
+    /// Only the registered owner of the commitment may call this.
+    pub fn remove_chain_address(
+        env: Env,
+        caller: Address,
+        username_hash: BytesN<32>,
+        chain: ChainType,
+    ) {
+        AddressManager::remove_chain_address(env, caller, username_hash, chain);
     }
 
     /// Link a primary Stellar address to a registered username hash.

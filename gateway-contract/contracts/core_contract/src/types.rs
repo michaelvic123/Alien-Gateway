@@ -19,4 +19,5 @@ pub enum ChainType {
     Evm,
     Bitcoin,
     Solana,
+    Cosmos,
 }

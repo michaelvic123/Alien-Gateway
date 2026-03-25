@@ -208,6 +208,11 @@ fn solana_address(env: &Env) -> Bytes {
     Bytes::from_slice(env, raw)
 }
 
+fn cosmos_address(env: &Env) -> Bytes {
+    let raw = b"cosmos1syavy2npfyt9tcncdtsdzf7kny9lh777yh8aee";
+    Bytes::from_slice(env, raw)
+}
+
 // ── success cases ─────────────────────────────────────────────────────────────
 
 #[test]
@@ -262,14 +267,51 @@ fn test_add_solana_address_success() {
 }
 
 #[test]
+fn test_add_cosmos_address_success() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, client) = setup(&env);
+
+    let owner = Address::generate(&env);
+    let hash = commitment(&env, 4);
+    let addr = cosmos_address(&env);
+
+    client.register(&owner, &hash);
+    client.add_chain_address(&owner, &hash, &ChainType::Cosmos, &addr);
+
+    let stored = client.get_chain_address(&hash, &ChainType::Cosmos);
+    assert_eq!(stored, Some(addr));
+}
+
+#[test]
 fn test_get_chain_address_returns_none_when_not_set() {
     let env = Env::default();
     env.mock_all_auths();
     let (_, client) = setup(&env);
 
-    let hash = commitment(&env, 4);
+    let hash = commitment(&env, 5);
     let result = client.get_chain_address(&hash, &ChainType::Evm);
     assert_eq!(result, None);
+}
+
+#[test]
+fn test_remove_chain_address_success() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, client) = setup(&env);
+
+    let owner = Address::generate(&env);
+    let hash = commitment(&env, 6);
+    let addr = evm_address(&env);
+
+    // Add address
+    client.register(&owner, &hash);
+    client.add_chain_address(&owner, &hash, &ChainType::Evm, &addr);
+    assert_eq!(client.get_chain_address(&hash, &ChainType::Evm), Some(addr));
+
+    // Remove address
+    client.remove_chain_address(&owner, &hash, &ChainType::Evm);
+    assert_eq!(client.get_chain_address(&hash, &ChainType::Evm), None);
 }
 
 // ── auth / ownership failures ─────────────────────────────────────────────────
@@ -282,7 +324,7 @@ fn test_add_chain_address_not_registered_panics() {
     let (_, client) = setup(&env);
 
     let caller = Address::generate(&env);
-    let hash = commitment(&env, 5);
+    let hash = commitment(&env, 7);
     let addr = evm_address(&env);
 
     client.add_chain_address(&caller, &hash, &ChainType::Evm, &addr);
@@ -297,11 +339,28 @@ fn test_add_chain_address_wrong_owner_panics() {
 
     let owner = Address::generate(&env);
     let attacker = Address::generate(&env);
-    let hash = commitment(&env, 6);
+    let hash = commitment(&env, 8);
     let addr = evm_address(&env);
 
     client.register(&owner, &hash);
     client.add_chain_address(&attacker, &hash, &ChainType::Evm, &addr);
+}
+
+#[test]
+#[should_panic]
+fn test_remove_chain_address_wrong_owner_panics() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, client) = setup(&env);
+
+    let owner = Address::generate(&env);
+    let attacker = Address::generate(&env);
+    let hash = commitment(&env, 9);
+    let addr = evm_address(&env);
+
+    client.register(&owner, &hash);
+    client.add_chain_address(&owner, &hash, &ChainType::Evm, &addr);
+    client.remove_chain_address(&attacker, &hash, &ChainType::Evm);
 }
 
 // ── address validation failures ───────────────────────────────────────────────
@@ -314,7 +373,7 @@ fn test_invalid_evm_address_wrong_length_panics() {
     let (_, client) = setup(&env);
 
     let owner = Address::generate(&env);
-    let hash = commitment(&env, 7);
+    let hash = commitment(&env, 10);
 
     client.register(&owner, &hash);
     let bad_addr = Bytes::from_slice(&env, b"0x1234567");
@@ -329,7 +388,7 @@ fn test_invalid_evm_address_no_prefix_panics() {
     let (_, client) = setup(&env);
 
     let owner = Address::generate(&env);
-    let hash = commitment(&env, 8);
+    let hash = commitment(&env, 11);
 
     client.register(&owner, &hash);
     let bad_addr = Bytes::from_slice(&env, b"aAbBcCdDeEfF00112233445566778899aAbBcCdDeE");
@@ -344,9 +403,24 @@ fn test_invalid_solana_address_too_short_panics() {
     let (_, client) = setup(&env);
 
     let owner = Address::generate(&env);
-    let hash = commitment(&env, 9);
+    let hash = commitment(&env, 12);
 
     client.register(&owner, &hash);
     let bad_addr = Bytes::from_slice(&env, b"short1234");
     client.add_chain_address(&owner, &hash, &ChainType::Solana, &bad_addr);
+}
+
+#[test]
+#[should_panic]
+fn test_invalid_cosmos_address_too_short_panics() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, client) = setup(&env);
+
+    let owner = Address::generate(&env);
+    let hash = commitment(&env, 13);
+
+    client.register(&owner, &hash);
+    let bad_addr = Bytes::from_slice(&env, b"cosmos123");
+    client.add_chain_address(&owner, &hash, &ChainType::Cosmos, &bad_addr);
 }
