@@ -27,7 +27,7 @@ fn commitment(env: &Env, seed: u8) -> BytesN<32> {
 }
 
 fn dummy_proof(env: &Env) -> Bytes {
-    Bytes::from_slice(env, &[0u8; 64])
+    Bytes::from_slice(env, &[1u8; 64])
 }
 
 // ── resolver / memo tests ─────────────────────────────────────────────────────
