@@ -14,7 +14,7 @@ mod test;
 use crate::errors::EscrowError;
 use crate::events::Events;
 use crate::storage::{
-    increment_auto_pay_id, increment_payment_id, read_vault, write_auto_pay,
+    increment_auto_pay_id, increment_payment_id, read_auto_pay, read_vault, write_auto_pay,
     write_scheduled_payment, write_vault,
 };
 use crate::types::{AutoPay, DataKey, ScheduledPayment};
@@ -190,6 +190,71 @@ impl EscrowContract {
         Events::auto_set(&env, auto_pay_id, from, to, amount, interval);
 
         Ok(auto_pay_id)
+    }
+
+    /// Executes one cycle of a recurring auto-pay rule if enough time has passed.
+    ///
+    /// This function is trustless and can be called by anyone (bots, keeper scripts, SDK).
+    /// It checks if the interval has elapsed since the last payment, validates the vault
+    /// balance, transfers the tokens, and updates the state.
+    ///
+    /// ### Arguments
+    /// - `auto_pay_id`: The unique identifier of the auto-pay rule to trigger.
+    ///
+    /// ### Errors
+    /// - Panics with `AutoPayNotFound` if the auto-pay rule does not exist.
+    /// - Panics with `IntervalNotElapsed` if called before the interval has elapsed.
+    /// - Panics with `VaultNotFound` if the source vault does not exist.
+    /// - Panics with `InsufficientBalance` if the vault balance is less than the payment amount.
+    pub fn trigger_auto_pay(env: Env, auto_pay_id: u32) {
+        // 1. Load AutoPay rule
+        let mut auto_pay = read_auto_pay(&env, auto_pay_id)
+            .unwrap_or_else(|| panic_with_error!(&env, EscrowError::AutoPayNotFound));
+
+        // 2. Check if interval has elapsed
+        let current_time = env.ledger().timestamp();
+        let next_payment_time = auto_pay.last_paid + auto_pay.interval;
+
+        if current_time < next_payment_time {
+            panic_with_error!(&env, EscrowError::IntervalNotElapsed);
+        }
+
+        // 3. Load vault and check balance
+        let mut vault = read_vault(&env, &auto_pay.from)
+            .unwrap_or_else(|| panic_with_error!(&env, EscrowError::VaultNotFound));
+
+        if vault.balance < auto_pay.amount {
+            panic_with_error!(&env, EscrowError::InsufficientBalance);
+        }
+
+        // 4. Resolve recipient address
+        let recipient = resolve(&env, &auto_pay.to);
+
+        // 5. Transfer tokens from contract to recipient
+        let token_client = token::Client::new(&env, &auto_pay.token);
+        token_client.transfer(
+            &env.current_contract_address(),
+            &recipient,
+            &auto_pay.amount,
+        );
+
+        // 6. Decrement vault balance
+        vault.balance -= auto_pay.amount;
+        write_vault(&env, &auto_pay.from, &vault);
+
+        // 7. Update last_paid timestamp
+        auto_pay.last_paid = current_time;
+        write_auto_pay(&env, auto_pay_id, &auto_pay);
+
+        // 8. Emit event
+        Events::auto_pay(
+            &env,
+            auto_pay_id,
+            auto_pay.from,
+            auto_pay.to,
+            auto_pay.amount,
+            current_time,
+        );
     }
 }
 

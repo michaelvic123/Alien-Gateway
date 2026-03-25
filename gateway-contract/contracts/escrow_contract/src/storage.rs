@@ -73,3 +73,8 @@ pub fn write_auto_pay(env: &Env, id: u32, auto_pay: &AutoPay) {
         .persistent()
         .set(&DataKey::AutoPay(id), auto_pay);
 }
+
+/// Reads an auto-pay rule from persistent storage.
+pub fn read_auto_pay(env: &Env, id: u32) -> Option<AutoPay> {
+    env.storage().persistent().get(&DataKey::AutoPay(id))
+}

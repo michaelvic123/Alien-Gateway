@@ -24,4 +24,8 @@ pub enum EscrowError {
     InvalidInterval = 10,
     /// The auto-pay counter has reached its maximum value (u32::MAX), preventing new IDs.
     AutoPayCounterOverflow = 11,
+    /// The specified auto-pay rule was not found.
+    AutoPayNotFound = 12,
+    /// The interval has not yet elapsed since the last payment.
+    IntervalNotElapsed = 13,
 }

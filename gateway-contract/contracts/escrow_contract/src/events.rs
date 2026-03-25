@@ -49,6 +49,23 @@ pub struct AutoSetEvent {
     pub interval: u64,
 }
 
+/// Event emitted when an auto-pay rule is triggered and payment is executed.
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AutoPayEvent {
+    /// The unique identifier of the auto-pay rule that was triggered.
+    #[topic]
+    pub auto_pay_id: u32,
+    /// The commitment identifier of the source vault.
+    pub from: BytesN<32>,
+    /// The commitment identifier of the recipient.
+    pub to: BytesN<32>,
+    /// The amount of tokens transferred.
+    pub amount: i128,
+    /// The timestamp when the payment was executed.
+    pub timestamp: u64,
+}
+
 /// Helper for emitting contract events.
 pub struct Events;
 
@@ -98,6 +115,25 @@ impl Events {
             to,
             amount,
             interval,
+        }
+        .publish(env);
+    }
+
+    /// Emits an `AutoPayEvent` to the host.
+    pub fn auto_pay(
+        env: &Env,
+        auto_pay_id: u32,
+        from: BytesN<32>,
+        to: BytesN<32>,
+        amount: i128,
+        timestamp: u64,
+    ) {
+        AutoPayEvent {
+            auto_pay_id,
+            from,
+            to,
+            amount,
+            timestamp,
         }
         .publish(env);
     }
