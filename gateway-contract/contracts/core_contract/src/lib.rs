@@ -7,15 +7,17 @@ pub mod registration;
 pub mod smt_root;
 pub mod storage;
 pub mod types;
+pub mod zk_verifier;
 
 #[cfg(test)]
 mod test;
 
 use address_manager::AddressManager;
 use errors::CoreError;
+use events::REGISTER_EVENT;
 use registration::Registration;
 use soroban_sdk::{contract, contractimpl, panic_with_error, Address, Bytes, BytesN, Env};
-use types::{ChainType, ResolveData};
+use types::{ChainType, PublicSignals, ResolveData};
 
 #[contract]
 pub struct Contract;
@@ -29,11 +31,57 @@ impl Contract {
             .unwrap_or_else(|| panic_with_error!(&env, CoreError::RootNotSet))
     }
 
-    pub fn register_resolver(env: Env, commitment: BytesN<32>, wallet: Address, memo: Option<u64>) {
-        let data = ResolveData { wallet, memo };
-        env.storage()
-            .persistent()
-            .set(&storage::DataKey::Resolver(commitment), &data);
+    /// Register a commitment with ZK proof verification and SMT root consistency check.
+    ///
+    /// Steps performed (in order):
+    /// 1. Authenticate `caller` via `require_auth`.
+    /// 2. Reject duplicate commitments.
+    /// 3. Verify `public_signals.old_root` matches the current on-chain SMT root.
+    /// 4. Verify the Groth16 non-inclusion proof (Phase 4 stub — always passes for now).
+    /// 5. Store the resolver record, advance the SMT root to `public_signals.new_root`,
+    ///    and emit a `REGISTER` event.
+    pub fn register_resolver(
+        env: Env,
+        caller: Address,
+        commitment: BytesN<32>,
+        proof: Bytes,
+        public_signals: PublicSignals,
+    ) {
+        // 1. Auth gate
+        caller.require_auth();
+
+        // 2. Reject duplicate commitments
+        let key = storage::DataKey::Resolver(commitment.clone());
+        if env.storage().persistent().has(&key) {
+            panic_with_error!(&env, CoreError::DuplicateCommitment);
+        }
+
+        // 3. SMT root consistency — old_root must match current on-chain root
+        let current_root = smt_root::SmtRoot::get_root(env.clone())
+            .unwrap_or_else(|| panic_with_error!(&env, CoreError::RootNotSet));
+        if public_signals.old_root != current_root {
+            panic_with_error!(&env, CoreError::StaleRoot);
+        }
+
+        // 4. ZK proof verification (Phase 4 stub)
+        if !zk_verifier::ZkVerifier::verify_groth16_proof(&env, &proof, &public_signals) {
+            panic_with_error!(&env, CoreError::InvalidProof);
+        }
+
+        // 5a. Persist resolver record
+        let data = ResolveData {
+            wallet: caller.clone(),
+            memo: None,
+        };
+        env.storage().persistent().set(&key, &data);
+
+        // 5b. Advance SMT root
+        smt_root::SmtRoot::update_root(&env, public_signals.new_root);
+
+        // 5c. Emit REGISTER event
+        #[allow(deprecated)]
+        env.events()
+            .publish((REGISTER_EVENT,), (commitment, caller));
     }
 
     pub fn set_memo(env: Env, commitment: BytesN<32>, memo_id: u64) {
