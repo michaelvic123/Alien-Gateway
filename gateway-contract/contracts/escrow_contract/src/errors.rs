@@ -20,4 +20,14 @@ pub enum EscrowError {
     PaymentAlreadyExecuted = 8,
     /// The scheduled payment is not yet due for execution.
     PaymentNotYetDue = 9,
+    /// The vault is inactive and cannot process new payments.
+    VaultInactive = 10,
+    /// The interval must be strictly greater than 0.
+    InvalidInterval = 11,
+    /// The auto-pay counter has reached its maximum value (u32::MAX), preventing new IDs.
+    AutoPayCounterOverflow = 12,
+    /// The specified auto-pay rule was not found.
+    AutoPayNotFound = 13,
+    /// The interval has not yet elapsed since the last payment.
+    IntervalNotElapsed = 14,
 }
