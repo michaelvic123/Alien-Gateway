@@ -18,6 +18,8 @@ pub enum DataKey {
     AutoPayCounter,
     /// Legacy key for a vault record (pre-split architecture). Kept for backward compatibility.
     Vault(BytesN<32>),
+    /// Key for the Registration contract address stored in instance storage.
+    RegistrationContract,
 }
 
 /// Immutable configuration for a vault. Written once at creation, never mutated.

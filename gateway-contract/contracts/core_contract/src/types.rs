@@ -26,6 +26,13 @@ pub enum ChainType {
     Cosmos,
 }
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum PrivacyMode {
+    Normal,
+    Private,
+}
+
 /// Public signals extracted from a Groth16 non-inclusion proof.
 /// `old_root` must match the current on-chain SMT root.
 /// `new_root` becomes the new SMT root after a successful registration.

@@ -1,22 +1,32 @@
-use soroban_sdk::{contractevent, Address, BytesN, Env};
+use soroban_sdk::{symbol_short, Address, BytesN, Env, Symbol};
 
-use crate::types::UsernameRecord;
+pub const USERNAME_DEPLOYED: Symbol = symbol_short!("USR_DEP");
+#[allow(dead_code)]
+pub const OWNERSHIP_TRANSFERRED: Symbol = symbol_short!("OWN_TRF");
 
-#[contractevent(topics = ["USERNAME_DEPLOYED"], data_format = "single-value")]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct UsernameDeployedEvent {
-    #[topic]
-    pub username_hash: BytesN<32>,
-    #[topic]
-    pub owner: Address,
-    pub record: UsernameRecord,
+#[allow(deprecated)]
+pub fn emit_username_deployed(
+    env: &Env,
+    username_hash: &BytesN<32>,
+    owner: &Address,
+    registered_at: u64,
+) {
+    env.events().publish(
+        (USERNAME_DEPLOYED,),
+        (username_hash.clone(), owner.clone(), registered_at),
+    );
 }
 
-pub fn emit_username_deployed(env: &Env, record: &UsernameRecord) {
-    UsernameDeployedEvent {
-        username_hash: record.username_hash.clone(),
-        owner: record.owner.clone(),
-        record: record.clone(),
-    }
-    .publish(env);
+#[allow(dead_code)]
+#[allow(deprecated)]
+pub fn emit_ownership_transferred(
+    env: &Env,
+    username_hash: &BytesN<32>,
+    old_owner: &Address,
+    new_owner: &Address,
+) {
+    env.events().publish(
+        (OWNERSHIP_TRANSFERRED,),
+        (username_hash.clone(), old_owner.clone(), new_owner.clone()),
+    );
 }

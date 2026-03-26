@@ -12,4 +12,5 @@ pub enum AuctionError {
     InvalidState = 6,
     BidTooLow = 7,
     AuctionNotOpen = 8,
+    AuctionNotClosed = 9,
 }

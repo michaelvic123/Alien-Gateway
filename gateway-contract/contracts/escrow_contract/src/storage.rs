@@ -1,6 +1,6 @@
 use crate::errors::EscrowError;
 use crate::types::{AutoPay, DataKey, LegacyVault, ScheduledPayment, VaultConfig, VaultState};
-use soroban_sdk::{BytesN, Env};
+use soroban_sdk::{Address, BytesN, Env};
 
 /// Reads a vault's immutable configuration from persistent storage.
 ///
@@ -69,6 +69,18 @@ pub fn increment_payment_id(env: &Env) -> Result<u32, EscrowError> {
         .set(&DataKey::PaymentCounter, &next);
 
     Ok(id)
+}
+
+/// Reads the Registration contract address from instance storage.
+pub fn read_registration_contract(env: &Env) -> Option<Address> {
+    env.storage().instance().get(&DataKey::RegistrationContract)
+}
+
+/// Writes the Registration contract address to instance storage.
+pub fn write_registration_contract(env: &Env, address: &Address) {
+    env.storage()
+        .instance()
+        .set(&DataKey::RegistrationContract, address);
 }
 
 /// Records a new scheduled payment in persistent storage.

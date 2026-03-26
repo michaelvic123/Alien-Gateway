@@ -1,4 +1,4 @@
-use soroban_sdk::{contractevent, BytesN, Env};
+use soroban_sdk::{contractevent, symbol_short, Address, BytesN, Env};
 
 /// Event emitted when a new payment is scheduled.
 #[contractevent]
@@ -66,6 +66,17 @@ pub struct AutoPayEvent {
     pub timestamp: u64,
 }
 
+/// Event emitted when a vault is cancelled.
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VaultCancelEvent {
+    /// The commitment identifier of the cancelled vault.
+    #[topic]
+    pub commitment: BytesN<32>,
+    /// Amount refunded back to the vault owner.
+    pub refunded_amount: i128,
+}
+
 /// Helper for emitting contract events.
 pub struct Events;
 
@@ -98,6 +109,14 @@ impl Events {
             amount,
         }
         .publish(env);
+    }
+
+    /// Emits a VAULT_CRT event with topics (symbol!("VAULT_CRT"), commitment)
+    /// and data (token, owner), exactly as specified in Issue #71.
+    #[allow(deprecated)]
+    pub fn vault_crt(env: &Env, commitment: BytesN<32>, token: Address, owner: Address) {
+        env.events()
+            .publish((symbol_short!("VAULT_CRT"), commitment), (token, owner));
     }
 
     /// Emits an `AutoSetEvent` to the host.
@@ -134,6 +153,15 @@ impl Events {
             to,
             amount,
             timestamp,
+        }
+        .publish(env);
+    }
+
+    /// Emits a `VaultCancelEvent` to the host.
+    pub fn vault_cancel(env: &Env, commitment: BytesN<32>, refunded_amount: i128) {
+        VaultCancelEvent {
+            commitment,
+            refunded_amount,
         }
         .publish(env);
     }
