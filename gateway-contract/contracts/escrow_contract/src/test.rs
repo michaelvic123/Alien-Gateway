@@ -382,14 +382,7 @@ fn test_get_balance_after_payment() {
         &token,
         initial,
     );
-    create_vault(
-        &env,
-        &contract_id,
-        &to,
-        &Address::generate(&env),
-        &token,
-        0,
-    );
+    create_vault(&env, &contract_id, &to, &Address::generate(&env), &token, 0);
 
     env.ledger().set_timestamp(1000);
     client.schedule_payment(&from, &to, &amount, &2000);
