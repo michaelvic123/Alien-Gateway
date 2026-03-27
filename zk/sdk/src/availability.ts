@@ -1,9 +1,18 @@
+import snarkjs from "snarkjs";
+import {
+  MerkleProofGenerator,
+  MerkleProofGeneratorConfig,
+} from "./proof";
 import { hashUsername } from "./usernameHasher";
-import { MerkleProofGenerator } from "./proof";
 
 export interface SMTData {
   nodes: any;
   depth: number;
+}
+
+export interface UsernameAvailabilityConfig {
+  proofConfig: MerkleProofGeneratorConfig;
+  vkeyPath: string;
 }
 
 /**
@@ -13,27 +22,30 @@ export async function isUsernameAvailable(
   username: string,
   smtRoot: bigint,
   merkleTree: SMTData,
-  config: any // should be MerkleProofGeneratorConfig
+  config: UsernameAvailabilityConfig
 ): Promise<boolean> {
   try {
-    // 1. Hash username into field element
+    // 1. Hash username
     const usernameHash = hashUsername(username);
 
-    // 2. Build circuit input (THIS replaces missing function)
+    // 2. Build circuit input (still your responsibility)
     const input = buildNonInclusionInput(
       usernameHash,
       smtRoot,
       merkleTree
     );
 
-    // 3. Generate proof
-    const generator = new MerkleProofGenerator(config);
+    // 3. Use SDK proof generator (✅ no hardcoded paths)
+    const generator = new MerkleProofGenerator(
+      config.proofConfig
+    );
 
     const { proof, publicSignals } =
       await generator.proveNonInclusion(input);
 
-    // 4. Verify proof
-    const vKey = await fetchVerificationKey();
+    // 4. Verify using configurable vkey path
+    const vKey = await fetchVerificationKey(config.vkeyPath);
+
     const isValid = await snarkjs.groth16.verify(
       vKey,
       publicSignals,
