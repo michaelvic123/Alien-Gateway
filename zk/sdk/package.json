@@ -1,9 +1,28 @@
 {
-  "name": "zk-sdk",
-  "version": "1.0.0",
-  "main": "index.js",
-  "type": "commonjs",
+  "name": "@alien-protocol/sdk",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for Alien Protocol - username resolution, proof generation, and payment transactions",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "alien-protocol",
+    "zk-proof",
+    "username",
+    "stellar",
+    "sdk"
+  ],
+  "author": "",
+  "license": "MIT",
   "dependencies": {
-    "circomlibjs": "^0.1.7"
+    "snarkjs": "^0.7.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
   }
 }

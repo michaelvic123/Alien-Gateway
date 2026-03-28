@@ -15,6 +15,7 @@ export interface InclusionInput {
   pathElements: SignalInput[];
   pathIndices: SignalInput[];
   root: SignalInput;
+  [key: string]: SignalInput | SignalInput[];
 }
 
 export interface NonInclusionInput {
@@ -26,6 +27,7 @@ export interface NonInclusionInput {
   merklePathAfterSiblings: SignalInput[];
   merklePathAfterIndices: SignalInput[];
   root: SignalInput;
+  [key: string]: SignalInput | SignalInput[];
 }
 
 export interface Groth16Proof {

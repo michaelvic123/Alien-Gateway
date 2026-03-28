@@ -1,3 +1,4 @@
+// @ts-ignore - snarkjs doesn't have type definitions
 import snarkjs from "snarkjs";
 
 import type {
