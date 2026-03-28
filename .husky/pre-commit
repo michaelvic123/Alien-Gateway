@@ -25,6 +25,11 @@ fi
 echo "📋 Checking for TODO/FIXME comments..."
 all_staged=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(ts|tsx|js|jsx|rs)$' || true)
 
+if [ -n "$all_staged" ]; then
+    for file in $all_staged; do
+        if grep -nE "TODO|FIXME" "$file" 2>/dev/null; then
+            echo "⚠️  Found TODO/FIXME in $file"
+        fi
     done
 fi
 
