@@ -1,2 +1,2 @@
 // Re-export shared error codes
-pub use shared::errors::{CoreError, ChainAddressError};
+pub use shared::errors::{ChainAddressError, CoreError};
