@@ -34,7 +34,7 @@ if errorlevel 1 goto :error
 call :compile_circuit "username_merkle" "username_merkle.circom"
 if errorlevel 1 goto :error
 
-call :compile_circuit "username_hash" "username_hash.circom"
+call :compile_circuit "username_hash" "username_hash_main.circom"
 if errorlevel 1 goto :error
 
 echo ================================================
