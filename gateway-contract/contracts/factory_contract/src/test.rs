@@ -220,16 +220,7 @@ fn test_deploy_username_duplicate_fails() {
     }]);
     factory.deploy_username(&hash, &owner);
 
-    env.mock_auths(&[MockAuth {
-        address: &auction_contract,
-        invoke: &MockAuthInvoke {
-            contract: &factory_id,
-            fn_name: "deploy_username",
-            args: deploy_args,
-            sub_invokes: &[],
-        },
-    }]);
-
+    // Do not re-mock auth here: the previous successful auth context is still valid for the next invocation
     let result = env.try_invoke_contract::<(), FactoryError>(
         &factory_id,
         &Symbol::new(&env, "deploy_username"),
