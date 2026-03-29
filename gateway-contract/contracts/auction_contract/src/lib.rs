@@ -140,10 +140,47 @@ impl AuctionContract {
         let token = soroban_sdk::token::Client::new(&env, &asset);
         token.transfer(&bidder, env.current_contract_address(), &amount);
         if let Some(prev_bidder) = storage::auction_get_highest_bidder(&env, id) {
-            token.transfer(&env.current_contract_address(), &prev_bidder, &highest_bid);
+            // Emit BID_RFDN event and record outbid amount for later refund
+            let username_hash = storage::auction_get_username_hash(&env, id);
+            crate::events::emit_bid_refunded(&env, &username_hash, &prev_bidder, highest_bid);
+            storage::auction_set_outbid_amount(&env, id, &prev_bidder, highest_bid);
         }
         storage::auction_set_highest_bidder(&env, id, &bidder);
         storage::auction_set_highest_bid(&env, id, amount);
+    }
+
+    pub fn refund_bid(env: Env, id: u32, bidder: Address) {
+        bidder.require_auth();
+        // Ensure auction is closed
+        let status = storage::auction_get_status(&env, id);
+        if status != types::AuctionStatus::Closed {
+            soroban_sdk::panic_with_error!(&env, errors::AuctionError::NotClosed);
+        }
+        // Winner cannot refund
+        if storage::auction_get_highest_bidder(&env, id)
+            .as_ref()
+            .map(|h| h == &bidder)
+            .unwrap_or(false)
+        {
+            soroban_sdk::panic_with_error!(&env, errors::AuctionError::NotWinner);
+        }
+        // Check double refund
+        if storage::auction_is_bid_refunded(&env, id, &bidder) {
+            soroban_sdk::panic_with_error!(&env, errors::AuctionError::AlreadyClaimed);
+        }
+        // Get outbid amount
+        let amount = storage::auction_get_outbid_amount(&env, id, &bidder);
+        if amount <= 0 {
+            soroban_sdk::panic_with_error!(&env, errors::AuctionError::InvalidState);
+        }
+        // Transfer asset back to bidder
+        let asset = storage::auction_get_asset(&env, id);
+        let token = soroban_sdk::token::Client::new(&env, &asset);
+        token.transfer(&env.current_contract_address(), &bidder, &amount);
+        storage::auction_set_bid_refunded(&env, id, &bidder);
+        // Emit event
+        let username_hash = storage::auction_get_username_hash(&env, id);
+        crate::events::emit_bid_refunded(&env, &username_hash, &bidder, amount);
     }
 
     pub fn close_auction_by_id(env: Env, id: u32) {

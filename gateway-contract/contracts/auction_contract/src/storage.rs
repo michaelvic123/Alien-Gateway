@@ -1,5 +1,5 @@
 use crate::types::{AuctionStatus, DataKey};
-use soroban_sdk::{Address, Env};
+use soroban_sdk::{Address, Env, BytesN};
 
 /// TTL constants for persistent storage entries.
 /// Bump amount: ~30 days (at ~5s per ledger close).
@@ -192,6 +192,23 @@ pub fn auction_is_claimed(env: &Env, id: u32) -> bool {
 pub fn auction_set_claimed(env: &Env, id: u32) {
     let key = AuctionKey::Claimed(id);
     env.storage().persistent().set(&key, &true);
+    env.storage().persistent().extend_ttl(
+        &key,
+        PERSISTENT_LIFETIME_THRESHOLD,
+        PERSISTENT_BUMP_AMOUNT,
+    );
+}
+
+pub fn auction_get_username_hash(env: &Env, id: u32) -> BytesN<32> {
+    env.storage()
+        .persistent()
+        .get(&AuctionKey::UsernameHash(id))
+        .unwrap_or(BytesN::from_array(&env, &[0; 32]))
+}
+
+pub fn auction_set_username_hash(env: &Env, id: u32, username_hash: &BytesN<32>) {
+    let key = AuctionKey::UsernameHash(id);
+    env.storage().persistent().set(&key, username_hash);
     env.storage().persistent().extend_ttl(
         &key,
         PERSISTENT_LIFETIME_THRESHOLD,
