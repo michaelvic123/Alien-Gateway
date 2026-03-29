@@ -85,7 +85,7 @@ pub fn auction_get_seller(env: &Env, id: u32) -> Address {
     env.storage()
         .persistent()
         .get(&AuctionKey::Seller(id))
-        .unwrap()
+        .expect("seller must be set before auction close")
 }
 
 pub fn auction_set_seller(env: &Env, id: u32, seller: &Address) {
@@ -102,7 +102,7 @@ pub fn auction_get_asset(env: &Env, id: u32) -> Address {
     env.storage()
         .persistent()
         .get(&AuctionKey::Asset(id))
-        .unwrap()
+        .expect("asset must be set at auction creation")
 }
 
 pub fn auction_set_asset(env: &Env, id: u32, asset: &Address) {
@@ -249,4 +249,3 @@ pub fn auction_set_bid_refunded(env: &Env, id: u32, bidder: &Address) {
         PERSISTENT_BUMP_AMOUNT,
     );
 }
-

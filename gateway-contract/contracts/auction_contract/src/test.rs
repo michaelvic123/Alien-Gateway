@@ -428,6 +428,15 @@ fn test_close_auction_early_fails() {
 }
 
 #[test]
+#[should_panic(expected = "Error(Contract, #8)")]
+fn test_close_nonexistent_auction_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup(&env);
+    client.close_auction_by_id(&999);
+}
+
+#[test]
 #[should_panic(expected = "Error(Contract, #1)")]
 fn test_claim_not_winner_fails() {
     let env = Env::default();
@@ -462,6 +471,21 @@ fn test_create_duplicate_auction_fails() {
     let (client, seller, asset) = setup(&env);
     client.create_auction(&1, &seller, &asset, &100, &1000u64);
     client.create_auction(&1, &seller, &asset, &200, &2000u64);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #10)")]
+fn test_outbid_self_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, seller, asset) = setup(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &asset);
+    let bidder = Address::generate(&env);
+    token_admin.mint(&bidder, &500);
+    client.create_auction(&1, &seller, &asset, &100, &1000u64);
+    client.place_bid(&1, &bidder, &150);
+    // Same bidder tries to raise their own bid — must be rejected
+    client.place_bid(&1, &bidder, &200);
 }
 
 #[test]

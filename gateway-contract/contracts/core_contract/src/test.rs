@@ -729,6 +729,22 @@ fn test_update_smt_root_unauthorized_rejects() {
     client.update_smt_root(&new_root);
 }
 
+#[test]
+#[should_panic(expected = "Error(Contract, #11)")]
+fn test_update_smt_root_same_root_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, client) = setup(&env);
+
+    let owner = Address::generate(&env);
+    client.initialize(&owner);
+
+    let root = BytesN::from_array(&env, &[42u8; 32]);
+    client.update_smt_root(&root);
+    // Setting the same root again must fail with RootUnchanged (#11)
+    client.update_smt_root(&root);
+}
+
 // ── chain address helpers ─────────────────────────────────────────────────────
 
 fn evm_address(env: &Env) -> Bytes {

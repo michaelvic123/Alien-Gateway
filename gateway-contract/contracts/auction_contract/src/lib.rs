@@ -8,6 +8,9 @@ pub mod types;
 // Ensure event symbols are linked from the main
 // contract entrypoint module.
 use crate::events::{AUCTION_CLOSED, AUCTION_CREATED, BID_PLACED, BID_REFUNDED, USERNAME_CLAIMED};
+
+/// Ensures event symbol constants are referenced from the crate root so the
+/// linker does not strip them when compiling to WASM.
 #[allow(dead_code)]
 fn _touch_event_symbols() {
     let _ = (
@@ -136,14 +139,25 @@ impl AuctionContract {
         if amount < min_bid || amount <= highest_bid {
             soroban_sdk::panic_with_error!(&env, errors::AuctionError::BidTooLow);
         }
+        if storage::auction_get_highest_bidder(&env, id)
+            .map(|h| h == bidder)
+            .unwrap_or(false)
+        {
+            soroban_sdk::panic_with_error!(&env, errors::AuctionError::SelfBid);
+        }
         let asset = storage::auction_get_asset(&env, id);
         let token = soroban_sdk::token::Client::new(&env, &asset);
         token.transfer(&bidder, env.current_contract_address(), &amount);
         if let Some(prev_bidder) = storage::auction_get_highest_bidder(&env, id) {
-            // Emit BID_RFDN event and record outbid amount for later refund
-            let username_hash = storage::auction_get_username_hash(&env, id);
-            crate::events::emit_bid_refunded(&env, &username_hash, &prev_bidder, highest_bid);
-            storage::auction_set_outbid_amount(&env, id, &prev_bidder, highest_bid);
+            // Record outbid amount for later refund by the bidder.
+            let prev_amount = highest_bid;
+            let existing_outbid = storage::auction_get_outbid_amount(&env, id, &prev_bidder);
+            storage::auction_set_outbid_amount(
+                &env,
+                id,
+                &prev_bidder,
+                existing_outbid + prev_amount,
+            );
         }
         storage::auction_set_highest_bidder(&env, id, &bidder);
         storage::auction_set_highest_bid(&env, id, amount);
@@ -156,8 +170,9 @@ impl AuctionContract {
         if status != types::AuctionStatus::Closed {
             soroban_sdk::panic_with_error!(&env, errors::AuctionError::NotClosed);
         }
-        // Winner cannot refund
-        if storage::auction_get_highest_bidder(&env, id)
+
+        let highest_bidder = storage::auction_get_highest_bidder(&env, id);
+        if highest_bidder
             .as_ref()
             .map(|h| h == &bidder)
             .unwrap_or(false)
@@ -178,12 +193,21 @@ impl AuctionContract {
         let token = soroban_sdk::token::Client::new(&env, &asset);
         token.transfer(&env.current_contract_address(), &bidder, &amount);
         storage::auction_set_bid_refunded(&env, id, &bidder);
-        // Emit event
-        let username_hash = storage::auction_get_username_hash(&env, id);
-        crate::events::emit_bid_refunded(&env, &username_hash, &bidder, amount);
+        storage::auction_set_outbid_amount(&env, id, &bidder, 0);
+
+        token.transfer(&env.current_contract_address(), &bidder, &refund_amount);
+        events::emit_bid_refunded(
+            &env,
+            &BytesN::from_array(&env, &[0u8; 32]),
+            &bidder,
+            refund_amount,
+        );
     }
 
     pub fn close_auction_by_id(env: Env, id: u32) {
+        if !storage::auction_exists(&env, id) {
+            soroban_sdk::panic_with_error!(&env, errors::AuctionError::AuctionNotOpen);
+        }
         let end_time = storage::auction_get_end_time(&env, id);
         if env.ledger().timestamp() < end_time {
             soroban_sdk::panic_with_error!(&env, errors::AuctionError::AuctionNotClosed);
