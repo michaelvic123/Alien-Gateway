@@ -52,9 +52,19 @@ pub fn set_username(env: &Env, hash: &BytesN<32>, record: &UsernameRecord) {
 }
 
 pub fn get_username(env: &Env, hash: &BytesN<32>) -> Option<UsernameRecord> {
-    env.storage()
+    let key = DataKey::Username(hash.clone());
+    let record = env
+        .storage()
         .persistent()
-        .get::<DataKey, UsernameRecord>(&DataKey::Username(hash.clone()))
+        .get::<DataKey, UsernameRecord>(&key);
+    if record.is_some() {
+        env.storage().persistent().extend_ttl(
+            &key,
+            PERSISTENT_LIFETIME_THRESHOLD,
+            PERSISTENT_BUMP_AMOUNT,
+        );
+    }
+    record
 }
 
 pub fn has_username(env: &Env, hash: &BytesN<32>) -> bool {
