@@ -10,9 +10,9 @@ pub mod types;
 
 #[cfg(test)]
 mod test;
-
 use crate::errors::EscrowError;
 use crate::events::Events;
+use crate::storage::delete_auto_pay;
 use crate::storage::{
     delete_auto_pay, increment_auto_pay_id, increment_payment_id, read_auto_pay,
     read_auto_pay_count, read_registration_contract, read_vault_config, read_vault_state,
@@ -58,11 +58,6 @@ impl EscrowContract {
     /// - `CommitmentNotRegistered`: If no owner is found for the commitment.
     /// - `VaultAlreadyExists`: If a vault already exists for this commitment.
     pub fn create_vault(env: Env, commitment: BytesN<32>, token: Address) {
-        soroban_sdk::log!(
-            &env,
-            "[CONTRACT DEBUG] create_vault: contract address = {:?}",
-            env.current_contract_address()
-        );
         // 1. Load Registration contract address (must be initialized first).
         let registration = read_registration_contract(&env)
             .unwrap_or_else(|| panic_with_error!(&env, EscrowError::CommitmentNotRegistered));
@@ -123,11 +118,6 @@ impl EscrowContract {
     /// - `VaultNotFound`: If the vault does not exist.
     /// - `VaultInactive`: If the vault is cancelled/inactive.
     pub fn deposit(env: Env, commitment: BytesN<32>, amount: i128) {
-        soroban_sdk::log!(
-            &env,
-            "[CONTRACT DEBUG] deposit: contract address = {:?}",
-            env.current_contract_address()
-        );
         if amount <= 0 {
             panic_with_error!(&env, EscrowError::InvalidAmount);
         }
@@ -173,11 +163,6 @@ impl EscrowContract {
     /// - `VaultInactive`: If the vault is cancelled/inactive.
     /// - `InsufficientBalance`: If the vault balance is less than `amount`.
     pub fn withdraw(env: Env, commitment: BytesN<32>, amount: i128) {
-        soroban_sdk::log!(
-            &env,
-            "[CONTRACT DEBUG] withdraw: contract address = {:?}",
-            env.current_contract_address()
-        );
         if amount <= 0 {
             panic_with_error!(&env, EscrowError::InvalidAmount);
         }
@@ -239,11 +224,6 @@ impl EscrowContract {
         amount: i128,
         release_at: u64,
     ) -> Result<u32, EscrowError> {
-        soroban_sdk::log!(
-            &env,
-            "[CONTRACT DEBUG] schedule_payment: contract address = {:?}",
-            env.current_contract_address()
-        );
         // 1. Validate Input
         if amount <= 0 {
             return Err(EscrowError::InvalidAmount);
@@ -490,7 +470,7 @@ impl EscrowContract {
         delete_auto_pay(&env, &from, rule_id);
 
         // 4. Emit cancellation event so off-chain observers (indexers, bots) can react.
-        Events::auto_cancel(&env, rule_id, from);
+        Events::auto_cancel(&env, from, rule_id);
     }
 
     /// Executes one cycle of a recurring auto-pay rule if enough time has passed.
