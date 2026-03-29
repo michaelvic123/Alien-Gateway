@@ -1,5 +1,67 @@
-#![cfg(test)]
+#[cfg(test)]
+mod tests {
+    use super::super::*;
+    use soroban_sdk::testutils::Address as _;
+    use soroban_sdk::testutils::Events as _;
+    use soroban_sdk::{Env, Symbol, TryFromVal, TryIntoVal};
 
+    #[test]
+    fn test_bid_refunded_event_emitted_when_outbid() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let alice = Address::generate(&env);
+        let bob = Address::generate(&env);
+
+        let contract_id = env.register(AuctionContract, ());
+        let client = AuctionContractClient::new(&env, &contract_id);
+
+        // Setup auction state
+        // register a single stellar asset and mint tokens to bidders so transfers succeed
+        let token_admin = Address::generate(&env);
+        let asset = env.register_stellar_asset_contract_v2(token_admin).address();
+        let token_admin_client = soroban_sdk::token::StellarAssetClient::new(&env, &asset);
+        let token = soroban_sdk::token::Client::new(&env, &asset);
+        token_admin_client.mint(&alice, &1000);
+        token_admin_client.mint(&bob, &1000);
+
+        env.as_contract(&contract_id, || {
+            use crate::storage;
+            use crate::types::AuctionStatus;
+            storage::auction_set_status(&env, 1, AuctionStatus::Open);
+            storage::auction_set_min_bid(&env, 1, 50);
+            storage::auction_set_end_time(&env, 1, env.ledger().timestamp() + 1000);
+            storage::auction_set_asset(&env, 1, &asset);
+        });
+
+        // Alice places initial bid
+        client.place_bid(&1, &alice, &100_i128);
+
+        // Bob outbids Alice
+        client.place_bid(&1, &bob, &200_i128);
+
+        // Capture events and assert BID_RFDN event present with correct bidder and refund_amount
+        let events = env.events().all();
+        assert!(!events.is_empty());
+        // Find any event whose data decodes to (Address, i128) and matches alice/100
+        let mut found = false;
+        for (_contract, _topics, data) in events.iter().rev() {
+            if let Ok((ev_bidder, ev_amount)) = <(Address, i128)>::try_from_val(&env, &data) {
+                if ev_bidder == alice && ev_amount == 100_i128 {
+                    found = true;
+                    break;
+                }
+            } else if let Ok((uh, ev_bidder, ev_amount)) = <(BytesN<32>, Address, i128)>::try_from_val(&env, &data) {
+                if ev_bidder == alice && ev_amount == 100_i128 {
+                    found = true;
+                    break;
+                }
+            }
+        }
+        assert!(found, "BID_RFDN event not found");
+    }
+
+}
 use super::*;
 use soroban_sdk::{
     testutils::{Address as _, Events, Ledger},
@@ -32,7 +94,7 @@ fn test_claim_username_success() {
     });
     client.claim_username(&username_hash, &claimer);
     let events = env.events().all();
-    assert!(events.len() > 0);
+    assert!(!events.is_empty());
 }
 
 #[test]
@@ -202,7 +264,7 @@ fn test_close_auction_emits_event() {
         l.timestamp = 2000;
     });
     client.close_auction(&username_hash);
-    assert!(env.events().all().len() > 0);
+    assert!(!env.events().all().is_empty());
 }
 
 // ── new lifecycle tests (issue #101) ─────────────────────────────────────────
@@ -333,6 +395,15 @@ fn test_auction_no_bids_close() {
 
 #[test]
 #[should_panic(expected = "Error(Contract, #7)")]
+fn test_create_auction_zero_min_bid_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, seller, asset) = setup(&env);
+    client.create_auction(&1, &seller, &asset, &0, &1000u64);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #7)")]
 fn test_place_bid_too_low_fails() {
     let env = Env::default();
     env.mock_all_auths();
@@ -363,6 +434,15 @@ fn test_close_auction_early_fails() {
     client.create_auction(&1, &seller, &asset, &100, &1000u64);
     env.ledger().set_timestamp(500);
     client.close_auction_by_id(&1);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #8)")]
+fn test_close_nonexistent_auction_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup(&env);
+    client.close_auction_by_id(&999);
 }
 
 #[test]
@@ -403,6 +483,21 @@ fn test_create_duplicate_auction_fails() {
 }
 
 #[test]
+#[should_panic(expected = "Error(Contract, #10)")]
+fn test_outbid_self_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, seller, asset) = setup(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &asset);
+    let bidder = Address::generate(&env);
+    token_admin.mint(&bidder, &500);
+    client.create_auction(&1, &seller, &asset, &100, &1000u64);
+    client.place_bid(&1, &bidder, &150);
+    // Same bidder tries to raise their own bid — must be rejected
+    client.place_bid(&1, &bidder, &200);
+}
+
+#[test]
 #[should_panic(expected = "Error(Contract, #2)")]
 fn test_claim_twice_fails() {
     let env = Env::default();
@@ -435,4 +530,36 @@ fn test_create_auction_emits_event() {
     
     let event_name = soroban_sdk::Symbol::try_from_val(&env, &topics.get(0).unwrap()).unwrap();
     assert_eq!(event_name, soroban_sdk::Symbol::new(&env, "AuctionCreatedEvent"));
+fn test_get_auction_info() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, seller, asset) = setup(&env);
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &asset);
+    let bidder = Address::generate(&env);
+    token_admin.mint(&bidder, &200);
+
+    // Should return None for unknown id
+    assert_eq!(client.get_auction_info(&1), None);
+
+    client.create_auction(&1, &seller, &asset, &100, &1000u64);
+    
+    // Initial state
+    let info1 = client.get_auction_info(&1).unwrap();
+    assert_eq!(info1, (seller.clone(), asset.clone(), 100, 1000, 0, None, types::AuctionStatus::Open, false));
+
+    // After bid
+    client.place_bid(&1, &bidder, &150);
+    let info2 = client.get_auction_info(&1).unwrap();
+    assert_eq!(info2, (seller.clone(), asset.clone(), 100, 1000, 150, Some(bidder.clone()), types::AuctionStatus::Open, false));
+
+    // After close
+    env.ledger().set_timestamp(1001);
+    client.close_auction_by_id(&1);
+    let info3 = client.get_auction_info(&1).unwrap();
+    assert_eq!(info3, (seller.clone(), asset.clone(), 100, 1000, 150, Some(bidder.clone()), types::AuctionStatus::Closed, false));
+
+    // After claim
+    client.claim(&1, &bidder);
+    let info4 = client.get_auction_info(&1).unwrap();
+    assert_eq!(info4, (seller.clone(), asset.clone(), 100, 1000, 150, Some(bidder.clone()), types::AuctionStatus::Closed, true));
 }
