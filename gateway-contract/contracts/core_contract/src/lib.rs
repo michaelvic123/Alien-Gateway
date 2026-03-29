@@ -1,5 +1,92 @@
 #![no_std]
 
+//! # Core Identity Contract
+//!
+//! This contract implements a privacy-preserving identity and resolution system
+//! built around a **commitment-based ownership model**. It enables users to
+//! register usernames, associate them with blockchain addresses (including
+//! Stellar), and transfer ownership securely.
+//!
+//! ## Identity Model Overview
+//!
+//! The system is built on the following flow:
+//!
+//! ```text
+//! Commitment (hash) → Username → SMT Root → Resolved Addresses
+//! ```
+//!
+//! ### 1. Commitment (`h: BytesN<32>`)
+//! - A cryptographic hash representing a username (or identity).
+//! - Acts as the **primary identifier** in the system.
+//! - Designed to preserve privacy by avoiding plaintext usernames on-chain.
+//!
+//! ### 2. Username Ownership
+//! - A commitment is **owned by an `Address`**.
+//! - Ownership is established during registration.
+//! - Ownership is required for all mutations (e.g., adding addresses, transfer).
+//!
+//! ### 3. Sparse Merkle Tree (SMT Root)
+//! - The global state of all commitments is represented by an SMT root.
+//! - The root is stored on-chain and updated by the contract admin.
+//! - ZK proofs rely on this root to validate membership and correctness.
+//!
+//! ### 4. Address Resolution
+//! - A commitment can resolve to:
+//!   - A primary wallet address
+//!   - Optional memo
+//!   - Multiple chain-specific addresses
+//!   - Multiple Stellar addresses
+//!   - Optional shielded (privacy-preserving) address
+//!
+//! ## Privacy & Zero-Knowledge Proofs
+//!
+//! Certain operations (e.g., resolver registration, ownership transfer) support
+//! **zero-knowledge proofs (ZKPs)** to:
+//!
+//! - Prove ownership or validity without revealing sensitive data
+//! - Enable privacy-preserving interactions
+//!
+//! The contract verifies proofs against the current SMT root.
+//!
+//! ## Ownership & Transfer Semantics
+//!
+//! Ownership of a commitment can be transferred in two ways:
+//!
+//! ### 1. Direct Transfer
+//! - Requires the current owner (`Address`) to authorize the transfer.
+//! - Updates the owner mapping immediately.
+//!
+//! ### 2. ZK-based Transfer
+//! - Uses a zero-knowledge proof to authorize the transfer.
+//! - Enables privacy-preserving ownership changes.
+//!
+//! ### Guarantees
+//! - Only the **current valid owner** (or valid proof) can transfer ownership.
+//! - All ownership changes are **atomic and consistent**.
+//!
+//! ## Storage Model
+//!
+//! The contract maintains:
+//! - Commitment → Owner mappings
+//! - Commitment → Address mappings (multi-chain + Stellar)
+//! - Commitment → Metadata (memo, privacy mode)
+//! - SMT root (global state anchor)
+//!
+//! Soft constraints:
+//! - No plaintext usernames stored
+//! - All lookups are keyed by commitment
+//!
+//! ## Purpose
+//!
+//! This contract enables:
+//! - Decentralized username ownership
+//! - Cross-chain identity resolution
+//! - Privacy-preserving identity operations
+//! - Secure and auditable ownership transfers
+//!
+//! It is designed for interoperability with wallets, identity systems,
+//! and off-chain indexers that rely on deterministic resolution.
+
 pub mod address_manager;
 pub mod admin;
 pub mod errors;
