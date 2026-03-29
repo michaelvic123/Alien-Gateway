@@ -26,7 +26,15 @@ jobs:
         targets: wasm32-unknown-unknown
 
     - name: Build Soroban contracts
-      run: cargo build --workspace --target wasm32-unknown-unknown --release --verbose
+      run: >
+        cargo build
+        -p auction_contract
+        -p core_contract
+        -p escrow_contract
+        -p factory_contract
+        --target wasm32-unknown-unknown
+        --release
+        --verbose
 
     - name: Run Cargo tests
       run: cargo test --workspace --all-features --verbose
