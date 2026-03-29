@@ -106,7 +106,7 @@ use address_manager::AddressManager;
 use admin::Admin;
 use registration::Registration;
 use resolver::Resolver;
-use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env};
+use soroban_sdk::{contract, contractimpl, symbol_short, Address, Bytes, BytesN, Env, Symbol};
 use transfer::Transfer;
 use types::{ChainType, PrivacyMode, PublicSignals};
 
@@ -148,8 +148,7 @@ impl Contract {
 
     /// Gets the owner of a commitment. See [registration::Registration::get_owner].
     pub fn get_owner(e: Env, h: BytesN<32>) -> Option<Address> { Registration::get_owner(e, h) }
-
-    /// Adds a blockchain address for a commitment. See [address_manager::AddressManager::add_chain_address].
+    pub fn get_username(e: Env) -> Option<Symbol> { e.storage().instance().get(&symbol_short!("Username")) }
     pub fn add_chain_address(e: Env, c: Address, h: BytesN<32>, t: ChainType, a: Bytes) { AddressManager::add_chain_address(e, c, h, t, a); }
 
     /// Gets the blockchain address for a commitment. See [address_manager::AddressManager::get_chain_address].

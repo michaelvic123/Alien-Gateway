@@ -1,8 +1,4 @@
-#![cfg(test)]
-
-use soroban_sdk::testutils::{
-    storage::Persistent as _, Address as _, Events as _, Ledger as _, MockAuth, MockAuthInvoke,
-};
+use soroban_sdk::testutils::{Address as _, Events as _, MockAuth, MockAuthInvoke};
 use soroban_sdk::{contract, contractimpl, IntoVal, Symbol, TryFromVal, Val, Vec};
 use soroban_sdk::{Address, BytesN, Env};
 
