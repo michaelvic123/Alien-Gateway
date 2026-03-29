@@ -1,5 +1,67 @@
-#![cfg(test)]
+#[cfg(test)]
+mod tests {
+    use super::super::*;
+    use soroban_sdk::testutils::Address as _;
+    use soroban_sdk::testutils::Events as _;
+    use soroban_sdk::{Env, Symbol, TryFromVal, TryIntoVal};
 
+    #[test]
+    fn test_bid_refunded_event_emitted_when_outbid() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let alice = Address::generate(&env);
+        let bob = Address::generate(&env);
+
+        let contract_id = env.register(AuctionContract, ());
+        let client = AuctionContractClient::new(&env, &contract_id);
+
+        // Setup auction state
+        // register a single stellar asset and mint tokens to bidders so transfers succeed
+        let token_admin = Address::generate(&env);
+        let asset = env.register_stellar_asset_contract_v2(token_admin).address();
+        let token_admin_client = soroban_sdk::token::StellarAssetClient::new(&env, &asset);
+        let token = soroban_sdk::token::Client::new(&env, &asset);
+        token_admin_client.mint(&alice, &1000);
+        token_admin_client.mint(&bob, &1000);
+
+        env.as_contract(&contract_id, || {
+            use crate::storage;
+            use crate::types::AuctionStatus;
+            storage::auction_set_status(&env, 1, AuctionStatus::Open);
+            storage::auction_set_min_bid(&env, 1, 50);
+            storage::auction_set_end_time(&env, 1, env.ledger().timestamp() + 1000);
+            storage::auction_set_asset(&env, 1, &asset);
+        });
+
+        // Alice places initial bid
+        client.place_bid(&1, &alice, &100_i128);
+
+        // Bob outbids Alice
+        client.place_bid(&1, &bob, &200_i128);
+
+        // Capture events and assert BID_RFDN event present with correct bidder and refund_amount
+        let events = env.events().all();
+        assert!(!events.is_empty());
+        // Find any event whose data decodes to (Address, i128) and matches alice/100
+        let mut found = false;
+        for (_contract, _topics, data) in events.iter().rev() {
+            if let Ok((ev_bidder, ev_amount)) = <(Address, i128)>::try_from_val(&env, &data) {
+                if ev_bidder == alice && ev_amount == 100_i128 {
+                    found = true;
+                    break;
+                }
+            } else if let Ok((uh, ev_bidder, ev_amount)) = <(BytesN<32>, Address, i128)>::try_from_val(&env, &data) {
+                if ev_bidder == alice && ev_amount == 100_i128 {
+                    found = true;
+                    break;
+                }
+            }
+        }
+        assert!(found, "BID_RFDN event not found");
+    }
+
+}
 use super::*;
 use soroban_sdk::{
     testutils::{Address as _, Events, Ledger},
