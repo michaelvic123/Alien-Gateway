@@ -298,7 +298,8 @@ fn test_get_owner_none_for_unknown() {
 
 #[test]
 fn get_username_record_extends_ttl_on_read() {
-    use crate::storage::{DataKey, PERSISTENT_BUMP_AMOUNT, PERSISTENT_LIFETIME_THRESHOLD};
+    use crate::storage::{PERSISTENT_BUMP_AMOUNT, PERSISTENT_LIFETIME_THRESHOLD};
+    use crate::types::DataKey;
 
     let env = Env::default();
     let (factory_id, factory, auction_contract, _) = setup_factory(&env);
