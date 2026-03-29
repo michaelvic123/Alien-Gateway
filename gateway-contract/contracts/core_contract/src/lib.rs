@@ -95,6 +95,7 @@ pub mod registration;
 pub mod resolver;
 pub mod smt_root;
 pub mod storage;
+pub mod alien_gateway;
 pub mod transfer;
 pub mod types;
 pub mod zk_verifier;

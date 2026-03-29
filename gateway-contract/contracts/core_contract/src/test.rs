@@ -100,7 +100,7 @@ fn test_get_username_returns_stored_username() {
     env.as_contract(&contract_id, || {
         env.storage()
             .instance()
-            .set(&Symbol::new(&env, "Username"), &username);
+            .set(&crate::alien_gateway::storage::username_key(&env), &username);
     });
 
     assert_eq!(client.get_username(), Some(username));
