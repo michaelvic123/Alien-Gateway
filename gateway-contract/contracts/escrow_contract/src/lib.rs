@@ -12,7 +12,6 @@ pub mod types;
 mod test;
 use crate::errors::EscrowError;
 use crate::events::Events;
-use crate::storage::delete_auto_pay;
 use crate::storage::{
     delete_auto_pay, increment_auto_pay_id, increment_payment_id, read_auto_pay,
     read_auto_pay_count, read_registration_contract, read_vault_config, read_vault_state,
@@ -117,20 +116,18 @@ impl EscrowContract {
     /// - `InvalidAmount`: If `amount <= 0`.
     /// - `VaultNotFound`: If the vault does not exist.
     /// - `VaultInactive`: If the vault is cancelled/inactive.
-    pub fn deposit(env: Env, commitment: BytesN<32>, amount: i128) {
+    pub fn deposit(env: Env, commitment: BytesN<32>, amount: i128) -> Result<(), EscrowError> {
         if amount <= 0 {
-            panic_with_error!(&env, EscrowError::InvalidAmount);
+            return Err(EscrowError::InvalidAmount);
         }
 
-        let config = read_vault_config(&env, &commitment)
-            .unwrap_or_else(|| panic_with_error!(&env, EscrowError::VaultNotFound));
-        let mut state = read_vault_state(&env, &commitment)
-            .unwrap_or_else(|| panic_with_error!(&env, EscrowError::VaultNotFound));
+        let config = read_vault_config(&env, &commitment).ok_or(EscrowError::VaultNotFound)?;
+        let mut state = read_vault_state(&env, &commitment).ok_or(EscrowError::VaultNotFound)?;
 
         config.owner.require_auth();
 
         if !state.is_active {
-            panic_with_error!(&env, EscrowError::VaultInactive);
+            return Err(EscrowError::VaultInactive);
         }
 
         // Transfer tokens from caller to the contract first
@@ -146,6 +143,7 @@ impl EscrowContract {
 
         // Emit DEPOSIT event.
         Events::deposit(&env, commitment, amount, state.balance);
+        Ok(())
     }
 
     /// Withdraws tokens from an existing vault.
@@ -296,27 +294,26 @@ impl EscrowContract {
     /// - `PaymentNotYetDue`: If the current ledger time is before `release_at`.
     /// - `VaultNotFound`: If the source vault no longer exists.
     /// - `VaultInactive`: If the source vault has been cancelled.
-    pub fn execute_scheduled(env: Env, payment_id: u32) {
+    pub fn execute_scheduled(env: Env, payment_id: u32) -> Result<(), EscrowError> {
         let key = DataKey::ScheduledPayment(payment_id);
         let mut payment: ScheduledPayment = env
             .storage()
             .persistent()
             .get(&key)
-            .unwrap_or_else(|| panic_with_error!(&env, EscrowError::PaymentNotFound));
+            .ok_or(EscrowError::PaymentNotFound)?;
 
         if payment.executed {
-            panic_with_error!(&env, EscrowError::PaymentAlreadyExecuted);
+            return Err(EscrowError::PaymentAlreadyExecuted);
         }
 
         if env.ledger().timestamp() < payment.release_at {
-            panic_with_error!(&env, EscrowError::PaymentNotYetDue);
+            return Err(EscrowError::PaymentNotYetDue);
         }
 
         // Reject execution if the source vault was cancelled.
-        let state = read_vault_state(&env, &payment.from)
-            .unwrap_or_else(|| panic_with_error!(&env, EscrowError::VaultNotFound));
+        let state = read_vault_state(&env, &payment.from).ok_or(EscrowError::VaultNotFound)?;
         if !state.is_active {
-            panic_with_error!(&env, EscrowError::VaultInactive);
+            return Err(EscrowError::VaultInactive);
         }
 
         let recipient = resolve(&env, &payment.to);
@@ -327,6 +324,7 @@ impl EscrowContract {
         write_scheduled_payment(&env, payment_id, &payment);
 
         Events::pay_exec(&env, payment_id, payment.from, payment.to, payment.amount);
+        Ok(())
     }
 
     /// Cancels an existing vault by commitment.
@@ -339,15 +337,13 @@ impl EscrowContract {
     ///
     /// ### Errors
     /// - `VaultNotFound`: If no vault exists for `commitment`.
-    pub fn cancel_vault(env: Env, commitment: BytesN<32>) {
+    pub fn cancel_vault(env: Env, commitment: BytesN<32>) -> Result<(), EscrowError> {
         // 1) Load vault config + authenticate as owner.
-        let config = read_vault_config(&env, &commitment)
-            .unwrap_or_else(|| panic_with_error!(&env, EscrowError::VaultNotFound));
+        let config = read_vault_config(&env, &commitment).ok_or(EscrowError::VaultNotFound)?;
         config.owner.require_auth();
 
-        // 2) Load vault mutable state (panic if vault doesn't exist).
-        let mut state = read_vault_state(&env, &commitment)
-            .unwrap_or_else(|| panic_with_error!(&env, EscrowError::VaultNotFound));
+        // 2) Load vault mutable state.
+        let mut state = read_vault_state(&env, &commitment).ok_or(EscrowError::VaultNotFound)?;
 
         // 3) Refund any remaining balance.
         let refunded_amount = if state.balance > 0 {
@@ -369,6 +365,7 @@ impl EscrowContract {
 
         // 5) Emit cancellation event.
         Events::vault_cancel(&env, commitment, refunded_amount);
+        Ok(())
     }
 
     /// Registers a recurring payment rule.

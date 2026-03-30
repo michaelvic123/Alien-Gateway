@@ -447,10 +447,7 @@ fn test_execute_scheduled_early_panics() {
 
     // Attempt before release_at
     let result = client.try_execute_scheduled(&payment_id);
-    assert!(matches!(
-        result,
-        Err(Ok(err)) if err == Error::from_contract_error(EscrowError::PaymentNotYetDue as u32)
-    ));
+    assert_eq!(result, Err(Ok(EscrowError::PaymentNotYetDue)));
 }
 
 // ---------------------------------------------------------------------------
@@ -597,10 +594,7 @@ fn test_execute_scheduled_double_panics() {
 
     // Second execution panics
     let result = client.try_execute_scheduled(&payment_id);
-    assert!(matches!(
-        result,
-        Err(Ok(err)) if err == Error::from_contract_error(EscrowError::PaymentAlreadyExecuted as u32)
-    ));
+    assert_eq!(result, Err(Ok(EscrowError::PaymentAlreadyExecuted)));
 }
 
 #[test]
@@ -611,11 +605,7 @@ fn test_execute_scheduled_not_found_panics() {
 
     let invalid_id = 999;
     let result = client.try_execute_scheduled(&invalid_id);
-
-    assert!(matches!(
-        result,
-        Err(Ok(err)) if err == Error::from_contract_error(EscrowError::PaymentNotFound as u32)
-    ));
+    assert_eq!(result, Err(Ok(EscrowError::PaymentNotFound)));
 }
 
 // ---------------------------------------------------------------------------
@@ -660,10 +650,7 @@ fn test_deposit_non_existent_vault() {
     let (_contract_id, client, _token, _token_admin, from, _to) = setup_test(&env);
 
     let result = client.try_deposit(&from, &100);
-    assert!(matches!(
-        result,
-        Err(Ok(err)) if err == Error::from_contract_error(EscrowError::VaultNotFound as u32)
-    ));
+    assert_eq!(result, Err(Ok(EscrowError::VaultNotFound)));
 }
 
 #[test]
@@ -692,10 +679,7 @@ fn test_deposit_inactive_vault() {
     });
 
     let result = client.try_deposit(&from, &100);
-    assert!(matches!(
-        result,
-        Err(Ok(err)) if err == Error::from_contract_error(EscrowError::VaultInactive as u32)
-    ));
+    assert_eq!(result, Err(Ok(EscrowError::VaultInactive)));
 }
 
 #[test]
@@ -708,16 +692,10 @@ fn test_deposit_invalid_amount() {
     create_vault(&env, &contract_id, &from, &owner, &token, 100);
 
     let result0 = client.try_deposit(&from, &0);
-    assert!(matches!(
-        result0,
-        Err(Ok(err)) if err == Error::from_contract_error(EscrowError::InvalidAmount as u32)
-    ));
+    assert_eq!(result0, Err(Ok(EscrowError::InvalidAmount)));
 
     let result_neg = client.try_deposit(&from, &-50);
-    assert!(matches!(
-        result_neg,
-        Err(Ok(err)) if err == Error::from_contract_error(EscrowError::InvalidAmount as u32)
-    ));
+    assert_eq!(result_neg, Err(Ok(EscrowError::InvalidAmount)));
 }
 
 #[test]
@@ -853,14 +831,14 @@ fn test_deposit_increases_balance() {
 }
 
 #[test]
-#[should_panic]
 fn test_deposit_zero_panics() {
     let env = Env::default();
     let (contract_id, client, token, _, from, _) = setup_test(&env);
     let owner = Address::generate(&env);
 
     create_vault(&env, &contract_id, &from, &owner, &token, 0);
-    client.mock_all_auths().deposit(&from, &0);
+    let result = client.mock_all_auths().try_deposit(&from, &0);
+    assert_eq!(result, Err(Ok(EscrowError::InvalidAmount)));
 }
 
 #[test]
@@ -889,13 +867,13 @@ fn test_deposit_non_owner_panics() {
 }
 
 #[test]
-#[should_panic]
 fn test_deposit_vault_not_found_panics() {
     let env = Env::default();
     let (_, client, _, _, _, _) = setup_test(&env);
     let commitment = BytesN::from_array(&env, &[9u8; 32]);
 
-    client.mock_all_auths().deposit(&commitment, &100);
+    let result = client.mock_all_auths().try_deposit(&commitment, &100);
+    assert_eq!(result, Err(Ok(EscrowError::VaultNotFound)));
 }
 
 // ─── withdraw tests ──────────────────────────────────────────────────────
@@ -1201,23 +1179,22 @@ fn test_cancel_vault_empty_balance() {
 }
 
 #[test]
-#[should_panic]
 fn test_cancel_vault_blocks_deposit() {
     let env = Env::default();
     env.mock_all_auths();
     let (contract_id, client, token, _, from, _) = setup_test(&env);
     let owner = Address::generate(&env);
 
-    create_vault(&env, &contract_id, &from, &owner, &token, 100);
+    create_vault(&env, &contract_id, &from, &owner, &token, 0);
 
     client.cancel_vault(&from);
 
     let amount = 50i128;
-    client.deposit(&from, &amount);
+    let result = client.try_deposit(&from, &amount);
+    assert_eq!(result, Err(Ok(EscrowError::VaultInactive)));
 }
 
 #[test]
-#[should_panic]
 fn test_cancel_vault_blocks_schedule() {
     let env = Env::default();
     env.mock_all_auths();
@@ -1229,7 +1206,7 @@ fn test_cancel_vault_blocks_schedule() {
         &from,
         &Address::generate(&env),
         &token,
-        1000,
+        0,
     );
     create_vault(&env, &contract_id, &to, &Address::generate(&env), &token, 0);
 
@@ -1237,7 +1214,8 @@ fn test_cancel_vault_blocks_schedule() {
 
     env.ledger().set_timestamp(1000);
 
-    client.schedule_payment(&from, &to, &100, &2000);
+    let result = client.try_schedule_payment(&from, &to, &100, &2000);
+    assert_eq!(result, Err(Ok(EscrowError::VaultInactive)));
 }
 
 #[test]
