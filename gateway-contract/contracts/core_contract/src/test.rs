@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 use crate::registration::DataKey as RegistrationKey;
 use crate::smt_root::SmtRoot;
 use crate::types::{AddressMetadata, ChainType, PrivacyMode, PublicSignals};
@@ -27,6 +25,14 @@ fn setup_with_root(env: &Env) -> (Address, ContractClient<'_>, BytesN<32>) {
 
 fn commitment(env: &Env, seed: u8) -> BytesN<32> {
     BytesN::from_array(env, &[seed; 32])
+}
+
+fn assert_event_symbol(env: &Env, event: &(Address, Vec<Val>, Val), expected: Symbol) {
+    use soroban_sdk::TryFromVal;
+
+    let event_topic = event.1.get(0).expect("event topic missing");
+    let event_name = Symbol::try_from_val(env, &event_topic).expect("event name should decode");
+    assert_eq!(event_name, expected);
 }
 
 // ── registration tests ───────────────────────────────────────────────────────
@@ -678,6 +684,64 @@ fn test_add_stellar_address_not_registered_panics() {
 }
 
 #[test]
+fn test_remove_stellar_address_success() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, client) = setup(&env);
+
+    let owner = Address::generate(&env);
+    let hash = commitment(&env, 85);
+    let addr_a = Address::generate(&env);
+    let addr_b = Address::generate(&env);
+
+    client.register(&owner, &hash);
+    client.add_stellar_address(&owner, &hash, &addr_a);
+    client.add_stellar_address(&owner, &hash, &addr_b);
+
+    // addr_b is now primary; remove it
+    client.remove_stellar_address(&owner, &hash, &addr_b);
+
+    // addr_b must be absent from the history list
+    let addresses = client.get_stellar_addresses(&hash);
+    assert_eq!(addresses.len(), 1);
+    assert_eq!(addresses.get(0).expect("first address missing"), addr_a);
+
+    // primary falls back to addr_a
+    assert_eq!(client.resolve_stellar(&hash), addr_a);
+}
+
+#[test]
+#[should_panic]
+fn test_remove_stellar_address_wrong_owner_panics() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, client) = setup(&env);
+
+    let owner = Address::generate(&env);
+    let attacker = Address::generate(&env);
+    let hash = commitment(&env, 86);
+    let addr = Address::generate(&env);
+
+    client.register(&owner, &hash);
+    client.add_stellar_address(&owner, &hash, &addr);
+    client.remove_stellar_address(&attacker, &hash, &addr);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #1)")]
+fn test_remove_stellar_address_not_registered_panics() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, client) = setup(&env);
+
+    let caller = Address::generate(&env);
+    let hash = commitment(&env, 87);
+    let addr = Address::generate(&env);
+
+    client.remove_stellar_address(&caller, &hash, &addr);
+}
+
+#[test]
 #[should_panic(expected = "Error(Contract, #3)")]
 fn test_register_resolver_duplicate_commitment_fails() {
     let env = Env::default();
@@ -831,6 +895,22 @@ fn test_update_smt_root_unauthorized_rejects() {
     let new_root = BytesN::from_array(&env, &[99u8; 32]);
     // Contract not initialized - no owner set, so should panic with NotFound
     client.update_smt_root(&new_root);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #11)")]
+fn test_update_smt_root_same_root_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, client) = setup(&env);
+
+    let owner = Address::generate(&env);
+    client.initialize(&owner);
+
+    let root = BytesN::from_array(&env, &[42u8; 32]);
+    client.update_smt_root(&root);
+    // Setting the same root again must fail with RootUnchanged (#11)
+    client.update_smt_root(&root);
 }
 
 // ── chain address helpers ─────────────────────────────────────────────────────
@@ -1039,7 +1119,11 @@ fn test_transfer_succeeds() {
 
     env.as_contract(&contract_id, || {
         let key = RegKey::Commitment(hash.clone());
-        let current_owner: Address = env.storage().persistent().get(&key).unwrap();
+        let current_owner: Address = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .expect("owner should be stored");
 
         if owner != current_owner {
             panic_with_error!(&env, CoreError::Unauthorized);
@@ -1135,6 +1219,104 @@ fn test_transfer_non_owner_panics() {
     );
     // attacker is not the owner → Unauthorized (#7)
     client.transfer(&attacker, &hash, &new_owner, &dummy_proof(&env), &signals);
+}
+
+#[test]
+fn test_full_identity_lifecycle() {
+    use crate::events::{REGISTER_EVENT, ROOT_UPDATED, TRANSFER_EVENT};
+
+    let env = Env::default();
+    env.mock_all_auths();
+    let (contract_id, client) = setup(&env);
+
+    let owner = Address::generate(&env);
+    let new_owner = Address::generate(&env);
+    let hash = commitment(&env, 100);
+
+    // Initialize the contract owner so new_owner can update the SMT root later.
+    client.initialize(&new_owner);
+    let mut events_len = env.events().all().len();
+
+    // register
+    client.register(&owner, &hash);
+    let events = env.events().all();
+    assert_eq!(events.len(), events_len + 1);
+    let register_event = events.last().expect("register event missing");
+    assert_event_symbol(&env, &register_event, REGISTER_EVENT);
+    let (commitment, registered_owner): (BytesN<32>, Address) = register_event.2.into_val(&env);
+    assert_eq!(commitment, hash);
+    assert_eq!(registered_owner, owner);
+    assert_eq!(client.get_owner(&hash), Some(owner.clone()));
+    env.as_contract(&contract_id, || {
+        assert_eq!(SmtRoot::get_root(env.clone()), None);
+    });
+    events_len = events.len();
+
+    // set_root
+    let root1 = BytesN::from_array(&env, &[1u8; 32]);
+    client.update_smt_root(&root1);
+    let events = env.events().all();
+    assert_eq!(events.len(), events_len + 1);
+    let root_event = events.last().expect("root update event missing");
+    assert_event_symbol(&env, &root_event, ROOT_UPDATED);
+    let (old_root, new_root): (Option<BytesN<32>>, BytesN<32>) = root_event.2.into_val(&env);
+    assert_eq!(old_root, None);
+    assert_eq!(new_root, root1);
+    assert_eq!(client.get_smt_root(), root1);
+    assert_eq!(client.get_owner(&hash), Some(owner.clone()));
+    events_len = events.len();
+
+    // add_stellar_address
+    let stellar = Address::generate(&env);
+    client.add_stellar_address(&owner, &hash, &stellar);
+    assert_eq!(client.resolve_stellar(&hash), stellar);
+    assert_eq!(client.get_smt_root(), root1);
+    assert_eq!(client.get_owner(&hash), Some(owner.clone()));
+    let events = env.events().all();
+    assert_eq!(events.len(), events_len);
+
+    // transfer
+    let root2 = BytesN::from_array(&env, &[2u8; 32]);
+    let signals = PublicSignals {
+        old_root: root1.clone(),
+        new_root: root2.clone(),
+    };
+    client.transfer(&owner, &hash, &new_owner, &dummy_proof(&env), &signals);
+
+    let events = env.events().all();
+    assert_eq!(events.len(), events_len + 2);
+    let transfer_event = events.last().expect("transfer event missing");
+    assert_event_symbol(&env, &transfer_event, TRANSFER_EVENT);
+    let (commitment, from_owner, to_owner): (BytesN<32>, Address, Address) =
+        transfer_event.2.into_val(&env);
+    assert_eq!(commitment, hash);
+    assert_eq!(from_owner, owner);
+    assert_eq!(to_owner, new_owner);
+
+    let root_event = events
+        .get(events.len() - 2)
+        .expect("previous root event missing");
+    assert_event_symbol(&env, &root_event, ROOT_UPDATED);
+    let (old_root, new_root): (Option<BytesN<32>>, BytesN<32>) = root_event.2.into_val(&env);
+    assert_eq!(old_root, Some(root1));
+    assert_eq!(new_root, root2);
+
+    assert_eq!(client.get_owner(&hash), Some(new_owner.clone()));
+    assert_eq!(client.get_smt_root(), root2);
+    events_len = events.len();
+
+    // new_owner updates root
+    let root3 = BytesN::from_array(&env, &[3u8; 32]);
+    client.update_smt_root(&root3);
+    let events = env.events().all();
+    assert_eq!(events.len(), events_len + 1);
+    let root_event = events.last().expect("final root update event missing");
+    assert_event_symbol(&env, &root_event, ROOT_UPDATED);
+    let (old_root, new_root): (Option<BytesN<32>>, BytesN<32>) = root_event.2.into_val(&env);
+    assert_eq!(old_root, Some(root2));
+    assert_eq!(new_root, root3);
+    assert_eq!(client.get_smt_root(), root3);
+    assert_eq!(client.get_owner(&hash), Some(new_owner));
 }
 
 // ── address validation failures ───────────────────────────────────────────────
@@ -1255,7 +1437,8 @@ fn test_update_root_emits_event() {
     assert_eq!(last_event.0, contract_id);
 
     // Decode the Val back into a Symbol to properly compare it
-    let event_name = Symbol::try_from_val(&env, &last_event.1.get(0).unwrap()).unwrap();
+    let event_topic = last_event.1.get(0).expect("event topic missing");
+    let event_name = Symbol::try_from_val(&env, &event_topic).expect("event name should decode");
     assert_eq!(event_name, Symbol::new(&env, "ROOT_UPD"));
 
     let (old, new): (Option<BytesN<32>>, BytesN<32>) = last_event.2.into_val(&env);
