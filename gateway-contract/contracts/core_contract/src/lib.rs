@@ -107,9 +107,9 @@ use address_manager::AddressManager;
 use admin::Admin;
 use registration::Registration;
 use resolver::Resolver;
-use soroban_sdk::{contract, contractimpl, Address, Bytes, BytesN, Env, Symbol};
+use soroban_sdk::{contract, contractimpl, Address, BytesN, Env};
 use transfer::Transfer;
-use types::{ChainType, PrivacyMode, PublicSignals};
+use types::{ChainType, PrivacyMode, Proof, PublicSignals};
 
 #[contract]
 pub struct Contract;
@@ -129,8 +129,11 @@ impl Contract {
     /// Updates the SMT root with owner authorization. See [admin::Admin::update_smt_root].
     pub fn update_smt_root(e: Env, r: BytesN<32>) { Admin::update_smt_root(e, r) }
 
+    /// Registers a username commitment from a verified proof submission.
+    pub fn submit_proof(e: Env, c: Address, p: Proof, s: PublicSignals) { Registration::submit_proof(e, c, p, s) }
+
     /// Registers a username with ZK proof validation. See [resolver::Resolver::register_resolver].
-    pub fn register_resolver(e: Env, c: Address, h: BytesN<32>, p: Bytes, s: PublicSignals) { Resolver::register_resolver(e, c, h, p, s); }
+    pub fn register_resolver(e: Env, c: Address, h: BytesN<32>, p: Proof, s: PublicSignals) { Resolver::register_resolver(e, c, h, p, s); }
 
     /// Sets a memo for a registered commitment. See [resolver::Resolver::set_memo].
     pub fn set_memo(e: Env, c: BytesN<32>, m: u64) { Resolver::set_memo(e, c, m) }
@@ -181,7 +184,7 @@ impl Contract {
     pub fn transfer_ownership(e: Env, c: Address, h: BytesN<32>, n: Address) { Transfer::transfer_ownership(e, c, h, n); }
 
     /// Transfers username ownership with ZK proof. See [transfer::Transfer::transfer].
-    pub fn transfer(e: Env, c: Address, h: BytesN<32>, n: Address, p: Bytes, s: PublicSignals) { Transfer::transfer(e, c, h, n, p, s); }
+    pub fn transfer(e: Env, c: Address, h: BytesN<32>, n: Address, p: Proof, s: PublicSignals) { Transfer::transfer(e, c, h, n, p, s); }
 
     /// Adds a shielded address for a commitment. See [address_manager::AddressManager::add_shielded_address].
     pub fn add_shielded_address(e: Env, c: Address, h: BytesN<32>, a: BytesN<32>) { AddressManager::add_shielded_address(e, c, h, a); }

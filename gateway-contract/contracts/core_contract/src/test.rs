@@ -89,31 +89,140 @@ fn test_get_owner_returns_none_for_unknown() {
 }
 
 #[test]
-fn test_get_username_returns_stored_username() {
+fn test_submit_proof_success_updates_state() {
     let env = Env::default();
-    let (contract_id, client) = setup(&env);
-    let username = Symbol::new(&env, "alien_user");
+    env.mock_all_auths();
+    let (_, client, root) = setup_with_root(&env);
 
-    env.as_contract(&contract_id, || {
-        env.storage().instance().set(
-            &crate::alien_gateway::storage::username_key(&env),
-            &username,
-        );
-    });
+    env.ledger().set_timestamp(1_700_000_123);
 
-    assert_eq!(client.get_username(), Some(username));
+    let caller = Address::generate(&env);
+    let hash = commitment(&env, 14);
+    let new_root = BytesN::from_array(&env, &[15u8; 32]);
+
+    client.submit_proof(
+        &caller,
+        &dummy_proof(&env),
+        &signals(&hash, root, new_root.clone()),
+    );
+
+    assert_eq!(client.get_owner(&hash), Some(caller));
+    assert_eq!(client.get_smt_root(), new_root);
+    assert_eq!(client.get_created_at(&hash), Some(1_700_000_123));
 }
 
 #[test]
-fn test_get_username_returns_none_when_uninitialized() {
+#[should_panic(expected = "Error(Contract, #5)")]
+fn test_submit_proof_invalid_proof_rejected() {
     let env = Env::default();
-    let (_, client) = setup(&env);
+    env.mock_all_auths();
+    let (_, client, root) = setup_with_root(&env);
 
-    assert_eq!(client.get_username(), None);
+    let caller = Address::generate(&env);
+    let hash = commitment(&env, 15);
+    let invalid_proof = Bytes::from_slice(&env, &[0u8; 64]);
+
+    client.submit_proof(
+        &caller,
+        &invalid_proof,
+        &signals(&hash, root, BytesN::from_array(&env, &[16u8; 32])),
+    );
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #4)")]
+fn test_submit_proof_stale_root_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, client, _root) = setup_with_root(&env);
+
+    let caller = Address::generate(&env);
+    let hash = commitment(&env, 16);
+
+    client.submit_proof(
+        &caller,
+        &dummy_proof(&env),
+        &signals(
+            &hash,
+            BytesN::from_array(&env, &[99u8; 32]),
+            BytesN::from_array(&env, &[17u8; 32]),
+        ),
+    );
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #10)")]
+fn test_submit_proof_duplicate_commitment_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_, client, root) = setup_with_root(&env);
+
+    let caller = Address::generate(&env);
+    let hash = commitment(&env, 17);
+    let next_root = BytesN::from_array(&env, &[18u8; 32]);
+
+    client.submit_proof(
+        &caller,
+        &dummy_proof(&env),
+        &signals(&hash, root, next_root.clone()),
+    );
+    client.submit_proof(
+        &caller,
+        &dummy_proof(&env),
+        &signals(&hash, next_root, BytesN::from_array(&env, &[19u8; 32])),
+    );
+}
+
+#[test]
+fn test_submit_proof_emits_username_registered_event() {
+    use crate::events::username_registered_event;
+    use crate::registration::Registration;
+    use soroban_sdk::{IntoVal, TryFromVal};
+
+    let env = Env::default();
+    env.mock_all_auths();
+    let (contract_id, _, root) = setup_with_root(&env);
+
+    let caller = Address::generate(&env);
+    let hash = commitment(&env, 18);
+    let new_root = BytesN::from_array(&env, &[19u8; 32]);
+    let proof = dummy_proof(&env);
+    let public_signals = signals(&hash, root, new_root);
+
+    env.as_contract(&contract_id, || {
+        Registration::submit_proof(
+            env.clone(),
+            caller.clone(),
+            proof.clone(),
+            public_signals.clone(),
+        );
+    });
+
+    let events = env.events().all();
+    assert_eq!(
+        events.len(),
+        2,
+        "ROOT_UPD and UsernameRegistered must be emitted"
+    );
+
+    let last_event = events.last().expect("No events emitted");
+    let event_name = Symbol::try_from_val(&env, &last_event.1.get(0).unwrap()).unwrap();
+    assert_eq!(event_name, username_registered_event(&env));
+
+    let emitted_commitment: BytesN<32> = last_event.2.into_val(&env);
+    assert_eq!(emitted_commitment, hash);
 }
 
 fn dummy_proof(env: &Env) -> Bytes {
     Bytes::from_slice(env, &[1u8; 64])
+}
+
+fn signals(commitment: &BytesN<32>, old_root: BytesN<32>, new_root: BytesN<32>) -> PublicSignals {
+    PublicSignals {
+        commitment: commitment.clone(),
+        old_root,
+        new_root,
+    }
 }
 
 #[contracttype]
@@ -235,10 +344,7 @@ fn test_resolve_returns_none_when_no_memo() {
     let hash = commitment(&env, 0);
     let new_root = BytesN::from_array(&env, &[2u8; 32]);
 
-    let signals = PublicSignals {
-        old_root: root,
-        new_root,
-    };
+    let signals = signals(&hash, root, new_root);
     client.register_resolver(&caller, &hash, &dummy_proof(&env), &signals);
 
     let (resolved_wallet, memo) = client.resolve(&hash);
@@ -255,10 +361,7 @@ fn test_set_memo_and_resolve_flow() {
     let hash = commitment(&env, 0);
     let new_root = BytesN::from_array(&env, &[2u8; 32]);
 
-    let signals = PublicSignals {
-        old_root: root,
-        new_root,
-    };
+    let signals = signals(&hash, root, new_root);
     client.register_resolver(&caller, &hash, &dummy_proof(&env), &signals);
     client.set_memo(&hash, &4242u64);
 
@@ -291,10 +394,7 @@ fn test_set_privacy_mode_to_shielded() {
         &owner,
         &hash,
         &dummy_proof(&env),
-        &PublicSignals {
-            old_root: root,
-            new_root,
-        },
+        &signals(&hash, root, new_root),
     );
 
     assert_eq!(client.get_privacy_mode(&hash), PrivacyMode::Normal);
@@ -320,10 +420,7 @@ fn test_set_privacy_mode_to_normal() {
         &owner,
         &hash,
         &dummy_proof(&env),
-        &PublicSignals {
-            old_root: root,
-            new_root,
-        },
+        &signals(&hash, root, new_root),
     );
 
     client.set_privacy_mode(&hash, &PrivacyMode::Shielded);
@@ -432,10 +529,7 @@ fn test_resolve_stellar_after_ownership_transfer() {
     client.register(&owner, &hash);
     client.add_stellar_address(&owner, &hash, &owner);
 
-    let signals = PublicSignals {
-        old_root: root,
-        new_root: BytesN::from_array(&env, &[43u8; 32]),
-    };
+    let signals = signals(&hash, root, BytesN::from_array(&env, &[43u8; 32]));
 
     client.transfer(&owner, &hash, &new_owner, &dummy_proof(&env), &signals);
 
@@ -527,10 +621,7 @@ fn test_register_resolver_unauthenticated_fails() {
     let (_, client, root) = setup_with_root(&env);
     let caller = Address::generate(&env);
     let hash = commitment(&env, 20);
-    let signals = PublicSignals {
-        old_root: root,
-        new_root: BytesN::from_array(&env, &[2u8; 32]),
-    };
+    let signals = signals(&hash, root, BytesN::from_array(&env, &[2u8; 32]));
     client.register_resolver(&caller, &hash, &dummy_proof(&env), &signals);
 }
 
@@ -542,10 +633,11 @@ fn test_register_resolver_stale_root_fails() {
     let (_, client, _) = setup_with_root(&env);
     let caller = Address::generate(&env);
     let hash = commitment(&env, 21);
-    let signals = PublicSignals {
-        old_root: BytesN::from_array(&env, &[99u8; 32]),
-        new_root: BytesN::from_array(&env, &[2u8; 32]),
-    };
+    let signals = signals(
+        &hash,
+        BytesN::from_array(&env, &[99u8; 32]),
+        BytesN::from_array(&env, &[2u8; 32]),
+    );
     client.register_resolver(&caller, &hash, &dummy_proof(&env), &signals);
 }
 
@@ -659,16 +751,10 @@ fn test_register_resolver_duplicate_commitment_fails() {
     let hash = commitment(&env, 22);
     let new_root = BytesN::from_array(&env, &[2u8; 32]);
 
-    let signals_first = PublicSignals {
-        old_root: root,
-        new_root: new_root.clone(),
-    };
+    let signals_first = signals(&hash, root, new_root.clone());
     client.register_resolver(&caller, &hash, &dummy_proof(&env), &signals_first);
 
-    let signals_second = PublicSignals {
-        old_root: new_root,
-        new_root: BytesN::from_array(&env, &[3u8; 32]),
-    };
+    let signals_second = signals(&hash, new_root, BytesN::from_array(&env, &[3u8; 32]));
     client.register_resolver(&caller, &hash, &dummy_proof(&env), &signals_second);
 }
 
@@ -681,10 +767,7 @@ fn test_register_resolver_success_updates_root() {
     let hash = commitment(&env, 23);
     let new_root = BytesN::from_array(&env, &[2u8; 32]);
 
-    let signals = PublicSignals {
-        old_root: root,
-        new_root: new_root.clone(),
-    };
+    let signals = signals(&hash, root, new_root.clone());
     client.register_resolver(&caller, &hash, &dummy_proof(&env), &signals);
 
     assert_eq!(client.get_smt_root(), new_root);
@@ -707,10 +790,7 @@ fn test_register_resolver_emits_events() {
     let hash = commitment(&env, 24);
     let new_root = BytesN::from_array(&env, &[2u8; 32]);
     let proof = dummy_proof(&env);
-    let signals = PublicSignals {
-        old_root: root.clone(),
-        new_root: new_root.clone(),
-    };
+    let signals = signals(&hash, root.clone(), new_root.clone());
 
     env.as_contract(&contract_id, || {
         use soroban_sdk::panic_with_error;
@@ -1033,10 +1113,7 @@ fn test_transfer_succeeds() {
     let hash = commitment(&env, 32);
     let new_root = BytesN::from_array(&env, &[99u8; 32]);
     let proof = dummy_proof(&env);
-    let signals = PublicSignals {
-        old_root: root.clone(),
-        new_root: new_root.clone(),
-    };
+    let signals = signals(&hash, root.clone(), new_root.clone());
 
     client.register(&owner, &hash);
 
@@ -1096,10 +1173,11 @@ fn test_transfer_same_owner_panics() {
 
     client.register(&owner, &hash);
 
-    let signals = PublicSignals {
-        old_root: BytesN::from_array(&env, &[0u8; 32]),
-        new_root: BytesN::from_array(&env, &[0u8; 32]),
-    };
+    let signals = signals(
+        &hash,
+        BytesN::from_array(&env, &[0u8; 32]),
+        BytesN::from_array(&env, &[0u8; 32]),
+    );
     // new_owner == old_owner must panic with SameOwner (#8)
     client.transfer(&owner, &hash, &owner, &dummy_proof(&env), &signals);
 }
@@ -1134,10 +1212,11 @@ fn test_transfer_non_owner_panics() {
 
     client.register(&owner, &hash);
 
-    let signals = PublicSignals {
-        old_root: BytesN::from_array(&env, &[0u8; 32]),
-        new_root: BytesN::from_array(&env, &[0u8; 32]),
-    };
+    let signals = signals(
+        &hash,
+        BytesN::from_array(&env, &[0u8; 32]),
+        BytesN::from_array(&env, &[0u8; 32]),
+    );
     // attacker is not the owner → Unauthorized (#7)
     client.transfer(&attacker, &hash, &new_owner, &dummy_proof(&env), &signals);
 }

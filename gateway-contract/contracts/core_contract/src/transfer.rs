@@ -103,6 +103,9 @@ impl Transfer {
         if public_signals.old_root != current_root {
             panic_with_error!(&env, CoreError::StaleRoot);
         }
+        if public_signals.commitment != commitment {
+            panic_with_error!(&env, CoreError::InvalidProof);
+        }
         if !zk_verifier::ZkVerifier::verify_groth16_proof(&env, &proof, &public_signals) {
             panic_with_error!(&env, CoreError::InvalidProof);
         }

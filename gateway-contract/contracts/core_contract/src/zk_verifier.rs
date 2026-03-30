@@ -1,5 +1,5 @@
-use crate::types::PublicSignals;
-use soroban_sdk::{Bytes, Env};
+use crate::types::{Proof, PublicSignals};
+use soroban_sdk::Env;
 
 pub struct ZkVerifier;
 
@@ -14,7 +14,7 @@ impl ZkVerifier {
     /// it is available on-chain.
     pub fn verify_groth16_proof(
         _env: &Env,
-        proof: &Bytes,
+        proof: &Proof,
         _public_signals: &PublicSignals,
     ) -> bool {
         // Fail closed: reject empty or undersized proof payloads
