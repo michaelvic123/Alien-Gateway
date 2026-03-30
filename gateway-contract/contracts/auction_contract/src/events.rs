@@ -1,4 +1,3 @@
-
 use soroban_sdk::{contractevent, symbol_short, Address, BytesN, Env, Symbol};
 
 // Event symbols must be <= 9 chars (Soroban `symbol_short!`).
@@ -19,6 +18,7 @@ pub struct AuctionCreatedEvent {
 
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[allow(dead_code)]
 pub struct BidPlacedEvent {
     #[topic]
     pub username_hash: BytesN<32>,
@@ -62,12 +62,11 @@ pub fn emit_auction_created(env: &Env, username_hash: &BytesN<32>, end_time: u64
 }
 
 pub fn emit_bid_placed(env: &Env, username_hash: &BytesN<32>, bidder: &Address, amount: i128) {
-    BidPlacedEvent {
-        username_hash: username_hash.clone(),
-        bidder: bidder.clone(),
-        amount,
-    }
-    .publish(env);
+    #[allow(deprecated)]
+    env.events().publish(
+        (BID_PLACED, username_hash.clone()),
+        (bidder.clone(), amount),
+    );
 }
 
 pub fn emit_auction_closed(
@@ -102,6 +101,8 @@ pub fn emit_bid_refunded(
     // and (bidder, refund_amount) as the data tuple. Using explicit publish ensures the
     // first topic is the event symbol which tests rely on.
     #[allow(deprecated)]
-    env.events()
-        .publish((BID_REFUNDED, username_hash.clone()), (bidder.clone(), refund_amount));
+    env.events().publish(
+        (BID_REFUNDED, username_hash.clone()),
+        (bidder.clone(), refund_amount),
+    );
 }

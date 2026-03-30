@@ -19,7 +19,9 @@ mod tests {
         // Setup auction state
         // register a single stellar asset and mint tokens to bidders so transfers succeed
         let token_admin = Address::generate(&env);
-        let asset = env.register_stellar_asset_contract_v2(token_admin).address();
+        let asset = env
+            .register_stellar_asset_contract_v2(token_admin)
+            .address();
         let token_admin_client = soroban_sdk::token::StellarAssetClient::new(&env, &asset);
         let _token = soroban_sdk::token::Client::new(&env, &asset);
         token_admin_client.mint(&alice, &1000);
@@ -63,6 +65,59 @@ mod tests {
         assert!(found, "BID_RFDN event not found");
     }
 
+    #[test]
+    fn test_bid_placed_event_emitted() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let alice = Address::generate(&env);
+
+        let contract_id = env.register(AuctionContract, ());
+        let client = AuctionContractClient::new(&env, &contract_id);
+
+        let token_admin = Address::generate(&env);
+        let asset = env
+            .register_stellar_asset_contract_v2(token_admin)
+            .address();
+        let token_admin_client = soroban_sdk::token::StellarAssetClient::new(&env, &asset);
+        // Mint to bidders so transfers succeed
+        token_admin_client.mint(&alice, &1000);
+
+        env.as_contract(&contract_id, || {
+            use crate::storage;
+            use crate::types::AuctionStatus;
+            storage::auction_set_status(&env, 1, AuctionStatus::Open);
+            storage::auction_set_min_bid(&env, 1, 50);
+            storage::auction_set_end_time(&env, 1, env.ledger().timestamp() + 1000);
+            storage::auction_set_asset(&env, 1, &asset);
+            storage::auction_set_username_hash(&env, 1, &BytesN::from_array(&env, &[0u8; 32]));
+        });
+
+        // Alice places initial bid
+        client.place_bid(&1, &alice, &100_i128);
+
+        // Capture events and assert BID_PLCD event present
+        let events = env.events().all();
+        assert!(!events.is_empty());
+
+        let mut found = false;
+        for (_contract, topics, data) in events.iter().rev() {
+            let event_name: Result<soroban_sdk::Symbol, _> =
+                soroban_sdk::Symbol::try_from_val(&env, &topics.get(0).unwrap());
+            if let Ok(name) = event_name {
+                if name == soroban_sdk::Symbol::new(&env, "BID_PLCD") {
+                    if let Ok((ev_bidder, ev_amount)) = <(Address, i128)>::try_from_val(&env, &data)
+                    {
+                        if ev_bidder == alice && ev_amount == 100_i128 {
+                            found = true;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        assert!(found, "BID_PLCD event not found");
+    }
 }
 use super::*;
 use soroban_sdk::{
@@ -531,20 +586,18 @@ fn test_create_auction_emits_event() {
     let env = Env::default();
     env.mock_all_auths();
     let (client, seller, asset) = setup(&env);
-    
+
     client.create_auction(&1, &seller, &asset, &100, &1000u64);
-    
+
     let events = env.events().all();
     assert!(!events.is_empty());
-    
+
     let event = events.last().expect("expected an AuctionCreated event");
     let (_, topics, _data) = event;
-    
-    let event_name = soroban_sdk::Symbol::try_from_val(
-        &env,
-        &topics.get(0).expect("expected event name topic"),
-    )
-    .expect("event name should deserialize");
+
+    let event_name =
+        soroban_sdk::Symbol::try_from_val(&env, &topics.get(0).expect("expected event name topic"))
+            .expect("event name should deserialize");
     assert_eq!(
         event_name,
         soroban_sdk::Symbol::new(&env, "auction_created_event")
@@ -564,19 +617,43 @@ fn test_get_auction_info() {
     assert_eq!(client.get_auction_info(&1), None);
 
     client.create_auction(&1, &seller, &asset, &100, &1000u64);
-    
+
     // Initial state
     let info1 = client
         .get_auction_info(&1)
         .expect("expected auction info after create");
-    assert_eq!(info1, (seller.clone(), asset.clone(), 100, 1000, 0, None, types::AuctionStatus::Open, false));
+    assert_eq!(
+        info1,
+        (
+            seller.clone(),
+            asset.clone(),
+            100,
+            1000,
+            0,
+            None,
+            types::AuctionStatus::Open,
+            false
+        )
+    );
 
     // After bid
     client.place_bid(&1, &bidder, &150);
     let info2 = client
         .get_auction_info(&1)
         .expect("expected auction info after bid");
-    assert_eq!(info2, (seller.clone(), asset.clone(), 100, 1000, 150, Some(bidder.clone()), types::AuctionStatus::Open, false));
+    assert_eq!(
+        info2,
+        (
+            seller.clone(),
+            asset.clone(),
+            100,
+            1000,
+            150,
+            Some(bidder.clone()),
+            types::AuctionStatus::Open,
+            false
+        )
+    );
 
     // After close
     env.ledger().set_timestamp(1001);
@@ -584,12 +661,36 @@ fn test_get_auction_info() {
     let info3 = client
         .get_auction_info(&1)
         .expect("expected auction info after close");
-    assert_eq!(info3, (seller.clone(), asset.clone(), 100, 1000, 150, Some(bidder.clone()), types::AuctionStatus::Closed, false));
+    assert_eq!(
+        info3,
+        (
+            seller.clone(),
+            asset.clone(),
+            100,
+            1000,
+            150,
+            Some(bidder.clone()),
+            types::AuctionStatus::Closed,
+            false
+        )
+    );
 
     // After claim
     client.claim(&1, &bidder);
     let info4 = client
         .get_auction_info(&1)
         .expect("expected auction info after claim");
-    assert_eq!(info4, (seller.clone(), asset.clone(), 100, 1000, 150, Some(bidder.clone()), types::AuctionStatus::Closed, true));
+    assert_eq!(
+        info4,
+        (
+            seller.clone(),
+            asset.clone(),
+            100,
+            1000,
+            150,
+            Some(bidder.clone()),
+            types::AuctionStatus::Closed,
+            true
+        )
+    );
 }
