@@ -1,7 +1,7 @@
 use soroban_sdk::{contracttype, panic_with_error, Address, Bytes, BytesN, Env, Vec};
 
 use crate::errors::{ChainAddressError, CoreError};
-use crate::events::{shielded_add_event, stellar_rem_event, CHAIN_ADD, CHAIN_REM, ADDR_ADD};
+use crate::events::{shielded_add_event, stellar_rem_event, ADDR_ADD, CHAIN_ADD, CHAIN_REM};
 use crate::registration::{DataKey as CommitmentKey, Registration};
 use crate::storage::{self, PERSISTENT_BUMP_AMOUNT, PERSISTENT_LIFETIME_THRESHOLD};
 use crate::types::ChainType;
@@ -185,8 +185,7 @@ impl AddressManager {
         );
 
         #[allow(deprecated)]
-        env.events()
-            .publish((ADDR_ADD,), stellar_address.clone());
+        env.events().publish((ADDR_ADD,), stellar_address.clone());
     }
 
     /// Removes a specific Stellar address linked to a registered commitment.

@@ -28,14 +28,6 @@ fn commitment(env: &Env, seed: u8) -> BytesN<32> {
     BytesN::from_array(env, &[seed; 32])
 }
 
-fn assert_event_symbol(env: &Env, event: &(Address, Vec<Val>, Val), expected: Symbol) {
-    use soroban_sdk::TryFromVal;
-
-    let event_topic = event.1.get(0).expect("event topic missing");
-    let event_name = Symbol::try_from_val(env, &event_topic).expect("event name should decode");
-    assert_eq!(event_name, expected);
-}
-
 // ── registration tests ───────────────────────────────────────────────────────
 
 #[test]
