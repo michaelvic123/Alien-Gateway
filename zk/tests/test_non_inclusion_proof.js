@@ -132,12 +132,12 @@ async function runTests() {
     const valid = await snarkjs.groth16.verify(vKey, publicSignals, proof);
     assert.ok(valid, "proof should verify");
 
-    assert.strictEqual(publicSignals[0], root.toString(), "publicSignals[0] must be root");
-    assert.strictEqual(publicSignals[1], root.toString(), "publicSignals[1] must echo out_root=root");
+    assert.strictEqual(publicSignals[0], root.toString(), "publicSignals[0] must echo out_root=root");
+    assert.strictEqual(publicSignals[1], "1", "publicSignals[1] must be isAvailable=1");
     assert.strictEqual(
       publicSignals[publicSignals.length - 1],
-      "1",
-      "last public signal must be isAvailable=1"
+      root.toString(),
+      "last public signal must be root"
     );
     process.stdout.write("  ✔  proof generated and verified\n");
   }
@@ -202,4 +202,3 @@ runTests().catch((err) => {
   process.stderr.write(`\n✘  Test failed: ${err.message ?? err}\n`);
   process.exit(1);
 });
-
