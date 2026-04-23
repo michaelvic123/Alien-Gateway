@@ -1,6 +1,5 @@
 use soroban_sdk::{contractevent, symbol_short, Address, BytesN, Env};
 
-/// Event emitted when a new payment is scheduled.
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SchedulePayEvent {
@@ -12,7 +11,6 @@ pub struct SchedulePayEvent {
     pub release_at: u64,
 }
 
-/// Event emitted when a scheduled payment is executed.
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PayExecEvent {
@@ -23,7 +21,6 @@ pub struct PayExecEvent {
     pub amount: i128,
 }
 
-/// Event emitted when a new auto-pay rule is registered.
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AutoSetEvent {
@@ -35,7 +32,6 @@ pub struct AutoSetEvent {
     pub interval: u64,
 }
 
-/// Event emitted when an auto-pay rule is triggered.
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AutoPayEvent {
@@ -47,7 +43,6 @@ pub struct AutoPayEvent {
     pub timestamp: u64,
 }
 
-/// Event emitted when a vault is cancelled.
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct VaultCancelEvent {
@@ -56,7 +51,6 @@ pub struct VaultCancelEvent {
     pub refunded_amount: i128,
 }
 
-/// Event emitted when a deposit is made.
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DepositEvent {
@@ -66,7 +60,6 @@ pub struct DepositEvent {
     pub new_balance: i128,
 }
 
-/// Event emitted when tokens are withdrawn.
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct WithdrawEvent {
@@ -76,7 +69,6 @@ pub struct WithdrawEvent {
     pub new_balance: i128,
 }
 
-/// Event emitted when an auto-pay rule is cancelled.
 #[contractevent]
 pub struct AutoCancelEvent {
     #[topic]
@@ -84,7 +76,6 @@ pub struct AutoCancelEvent {
     pub from: BytesN<32>,
 }
 
-/// Helper for emitting contract events.
 pub struct Events;
 
 impl Events {
@@ -116,7 +107,6 @@ impl Events {
         .publish(env);
     }
 
-    /// Kept for backward compatibility (explicitly allowed)
     #[allow(deprecated)]
     pub fn vault_crt(env: &Env, commitment: BytesN<32>, token: Address, owner: Address) {
         env.events()
@@ -185,7 +175,6 @@ impl Events {
         .publish(env);
     }
 
-    ///  Fixed modern AUTO_CANCEL event
     pub fn auto_cancel(env: &Env, from: BytesN<32>, rule_id: u32) {
         AutoCancelEvent { rule_id, from }.publish(env);
     }

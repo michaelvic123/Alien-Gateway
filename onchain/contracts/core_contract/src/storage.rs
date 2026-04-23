@@ -2,31 +2,26 @@ use soroban_sdk::{contracttype, Address, BytesN, Env};
 
 use crate::types::PrivacyMode;
 
-/// TTL constants for persistent storage entries.
-/// Bump amount: ~30 days (at ~5s per ledger close).
+/// The amount of ledger entries to bump persistent storage by.
 pub(crate) const PERSISTENT_BUMP_AMOUNT: u32 = 518_400;
-/// Lifetime threshold: ~7 days — entries are extended when remaining TTL drops below this.
+/// The threshold for persistent storage TTL to trigger an auto-bump.
 pub(crate) const PERSISTENT_LIFETIME_THRESHOLD: u32 = 120_960;
 
-/// Storage keys for the Core contract's persistent and instance storage.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DataKey {
-    /// Key for resolver data, indexed by commitment.
     Resolver(BytesN<32>),
-    /// Key for the SMT root in instance storage.
     SmtRoot,
-    /// Key for the primary Stellar address linked to a username hash.
     StellarAddress(BytesN<32>),
-    /// Key for the list of all Stellar addresses linked to a username hash.
     StellarAddresses(BytesN<32>),
-    /// Key for the user's selected privacy mode.
     PrivacyMode(BytesN<32>),
-    /// Key for the contract owner set during initialization (instance storage).
+    /// The contract owner.
     Owner,
-    /// Key for a shielded address commitment, indexed by username hash.
+    /// The contract admin.
+    Admin,
+    /// The contract operator.
+    Operator,
     ShieldedAddress(BytesN<32>),
-    /// Key for the ledger timestamp at which a commitment was first registered.
     CreatedAt(BytesN<32>),
 }
 
@@ -47,12 +42,34 @@ pub fn get_privacy_mode(env: &Env, username_hash: &BytesN<32>) -> PrivacyMode {
         .unwrap_or(PrivacyMode::Normal)
 }
 
+/// Sets the contract owner.
 pub fn set_owner(env: &Env, owner: &Address) {
     env.storage().instance().set(&DataKey::Owner, owner);
 }
 
+/// Returns the contract owner.
 pub fn get_owner(env: &Env) -> Option<Address> {
     env.storage().instance().get(&DataKey::Owner)
+}
+
+/// Sets the contract admin.
+pub fn set_admin(env: &Env, admin: &Address) {
+    env.storage().instance().set(&DataKey::Admin, admin);
+}
+
+/// Returns the contract admin.
+pub fn get_admin(env: &Env) -> Option<Address> {
+    env.storage().instance().get(&DataKey::Admin)
+}
+
+/// Sets the contract operator.
+pub fn set_operator(env: &Env, operator: &Address) {
+    env.storage().instance().set(&DataKey::Operator, operator);
+}
+
+/// Returns the contract operator.
+pub fn get_operator(env: &Env) -> Option<Address> {
+    env.storage().instance().get(&DataKey::Operator)
 }
 
 pub fn is_initialized(env: &Env) -> bool {

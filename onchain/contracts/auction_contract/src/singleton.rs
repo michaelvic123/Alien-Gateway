@@ -1,6 +1,3 @@
-/// Singleton auction flow: a single, instance-scoped auction identified by
-/// the contract address itself (no numeric ID).  Handles `close_auction` and
-/// `claim_username`.
 use soroban_sdk::{vec, Address, BytesN, Env, IntoVal, Symbol};
 
 use crate::{errors::AuctionError, events, storage, types};

@@ -1,5 +1,3 @@
-/// ID-indexed auction flow: multiple auctions identified by a numeric `id`.
-/// Handles `create_auction`, `place_bid`, `close_auction_by_id`, and `claim`.
 use soroban_sdk::{Address, Env};
 
 use crate::{errors, events, storage, types};

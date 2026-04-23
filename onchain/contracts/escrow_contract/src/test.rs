@@ -7,20 +7,15 @@ use soroban_sdk::token::{Client as TokenClient, StellarAssetClient};
 
 use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, Error, IntoVal};
 
-// ---------------------------------------------------------------------------
-// Mock Registration contract — exposes get_owner / set_owner for tests.
-// ---------------------------------------------------------------------------
 #[contract]
 pub struct MockRegistrationContract;
 
 #[contractimpl]
 impl MockRegistrationContract {
-    /// Seed an owner for a commitment (no auth required — test helper only).
     pub fn set_owner(env: Env, commitment: BytesN<32>, owner: Address) {
         env.storage().persistent().set(&commitment, &owner);
     }
 
-    /// Mirror of the real Registration::get_owner interface.
     pub fn get_owner(env: Env, commitment: BytesN<32>) -> Option<Address> {
         env.storage().persistent().get(&commitment)
     }
@@ -117,10 +112,8 @@ fn test_legacy_vault_key_fallback_and_migration() {
 
     mint_token(&env, &token, &token_admin, &owner, 500);
 
-    // legacy storage should be readable through current getters.
     assert_eq!(client.get_balance(&from), Some(1000));
 
-    // carry out a transition mutation (deposit) to verify the mutable split key is written.
     client.deposit(&from, &200);
     assert_eq!(client.get_balance(&from), Some(1200));
 
@@ -149,10 +142,6 @@ fn test_legacy_vault_key_fallback_and_migration() {
     });
 }
 
-// ─── get_scheduled_payment tests ─────────────────────────────────────────────
-
-/// Verifies that `get_scheduled_payment` returns `Some(ScheduledPayment)` with
-/// all correct fields immediately after `schedule_payment` has been called.
 #[test]
 fn test_get_scheduled_payment_returns_all_fields_after_schedule() {
     let env = Env::default();
@@ -189,8 +178,6 @@ fn test_get_scheduled_payment_returns_all_fields_after_schedule() {
     assert!(!payment.executed, "payment should not be executed yet");
 }
 
-/// Verifies that `get_scheduled_payment` returns `None` for an ID that was
-/// never created, confirming it does not fabricate data.
 #[test]
 fn test_get_scheduled_payment_returns_none_for_unknown_id() {
     let env = Env::default();
@@ -223,7 +210,6 @@ fn test_schedule_payment_success() {
     let payment_id = client.schedule_payment(&from, &to, &amount, &release_at);
     assert_eq!(payment_id, 0);
 
-    // Verify balance decremented
     env.as_contract(&contract_id, || {
         let state: VaultState = env
             .storage()
@@ -232,7 +218,6 @@ fn test_schedule_payment_success() {
             .expect("vault state should exist");
         assert_eq!(state.balance, initial_balance - amount);
 
-        // Verify VaultConfig is unmodified after payment scheduling
         let config: VaultConfig = env
             .storage()
             .persistent()
@@ -240,7 +225,6 @@ fn test_schedule_payment_success() {
             .expect("vault config should exist");
         assert_eq!(config.token, token);
 
-        // Verify ScheduledPayment stored correctly
         let payment: ScheduledPayment = env
             .storage()
             .persistent()
@@ -260,7 +244,6 @@ fn test_schedule_payment_inactive_vault() {
     env.mock_all_auths();
     let (contract_id, client, token, _, from, to) = setup_test(&env);
 
-    // Seed vault with is_active: false
     let config = VaultConfig {
         owner: Address::generate(&env),
         token: token.clone(),
@@ -301,7 +284,6 @@ fn test_schedule_payment_past_release_panics() {
     );
     env.ledger().set_timestamp(2000);
 
-    // release_at (1000) is in the past relative to current ledger (2000)
     let result = client.try_schedule_payment(&from, &to, &100, &1000);
     assert_eq!(result, Err(Ok(EscrowError::PastReleaseTime)));
 }
@@ -322,7 +304,6 @@ fn test_schedule_payment_insufficient_balance_panics() {
     );
     env.ledger().set_timestamp(1000);
 
-    // amount (200) > balance (100)
     let result = client.try_schedule_payment(&from, &to, &200, &2000);
     assert_eq!(result, Err(Ok(EscrowError::InsufficientBalance)));
 }
@@ -390,19 +371,15 @@ fn test_execute_scheduled_success() {
     create_vault(&env, &contract_id, &from, &from_owner, &token, 1000);
     create_vault(&env, &contract_id, &to, &to_owner, &token, 0);
 
-    // Schedule payment
     env.ledger().set_timestamp(1000);
     let payment_id = client.schedule_payment(&from, &to, &amount, &release_at);
 
-    // Mint tokens to the contract to fulfill the payment (representing the reserved balance)
     let token_admin_client = StellarAssetClient::new(&env, &token);
     token_admin_client.mint(&contract_id, &amount);
 
-    // Advance ledger and execute
     env.ledger().set_timestamp(2500);
     client.execute_scheduled(&payment_id);
 
-    // Verify event
     let events = env.events().all();
     let escrow_events = events
         .iter()
@@ -410,7 +387,6 @@ fn test_execute_scheduled_success() {
         .count();
     assert!(escrow_events > 0); // schedule + execute events
 
-    // Verify executed = true in storage
     env.as_contract(&contract_id, || {
         let payment: ScheduledPayment = env
             .storage()
@@ -420,7 +396,6 @@ fn test_execute_scheduled_success() {
         assert!(payment.executed);
     });
 
-    // Verify token transferred
     let token_client = TokenClient::new(&env, &token);
     assert_eq!(token_client.balance(&to_owner), amount);
     assert_eq!(token_client.balance(&contract_id), 0);
@@ -445,17 +420,10 @@ fn test_execute_scheduled_early_panics() {
     env.ledger().set_timestamp(1000);
     let payment_id = client.schedule_payment(&from, &to, &100, &2000);
 
-    // Attempt before release_at
     let result = client.try_execute_scheduled(&payment_id);
     assert_eq!(result, Err(Ok(EscrowError::PaymentNotYetDue)));
 }
 
-// ---------------------------------------------------------------------------
-// create_vault tests
-// ---------------------------------------------------------------------------
-
-/// Deploys a MockRegistrationContract, seeds `owner` for `commitment`, then
-/// returns (escrow_client, reg_id, owner, token, commitment).
 fn setup_with_registration<'a>(
     env: &'a Env,
     commitment_seed: u8,
@@ -496,7 +464,6 @@ fn test_create_vault_success() {
 
     client.create_vault(&commitment, &token);
 
-    // Verify VaultConfig persisted correctly.
     env.as_contract(&escrow_id, || {
         let config: VaultConfig = env
             .storage()
@@ -506,7 +473,6 @@ fn test_create_vault_success() {
         assert_eq!(config.owner, owner);
         assert_eq!(config.token, token);
 
-        // Verify VaultState persisted correctly.
         let state: VaultState = env
             .storage()
             .persistent()
@@ -526,7 +492,6 @@ fn test_create_vault_already_exists() {
 
     client.create_vault(&commitment, &token);
 
-    // Second call must panic with VaultAlreadyExists.
     let result = client.try_create_vault(&commitment, &token);
     assert!(matches!(
         result,
@@ -561,7 +526,6 @@ fn test_create_vault_not_owner() {
             .set(&DataKey::RegistrationContract, &reg_id);
     });
 
-    // create_vault calls owner.require_auth() → panics because no auth is mocked.
     client.create_vault(&commitment, &token);
 }
 
@@ -589,10 +553,8 @@ fn test_execute_scheduled_double_panics() {
     token_admin_client.mint(&contract_id, &100);
 
     env.ledger().set_timestamp(1600);
-    // First execution succeeds
     client.execute_scheduled(&payment_id);
 
-    // Second execution panics
     let result = client.try_execute_scheduled(&payment_id);
     assert_eq!(result, Err(Ok(EscrowError::PaymentAlreadyExecuted)));
 }
@@ -607,10 +569,6 @@ fn test_execute_scheduled_not_found_panics() {
     let result = client.try_execute_scheduled(&invalid_id);
     assert_eq!(result, Err(Ok(EscrowError::PaymentNotFound)));
 }
-
-// ---------------------------------------------------------------------------
-// deposit tests
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_deposit_success() {
@@ -758,8 +716,6 @@ fn test_deposit_not_owner() {
     client.deposit(&from, &100);
 }
 
-// ─── get_balance tests ───────────────────────────────────────────────
-
 #[test]
 fn test_get_balance_vault_not_found() {
     let env = Env::default();
@@ -875,8 +831,6 @@ fn test_deposit_vault_not_found_panics() {
     let result = client.mock_all_auths().try_deposit(&commitment, &100);
     assert_eq!(result, Err(Ok(EscrowError::VaultNotFound)));
 }
-
-// ─── withdraw tests ──────────────────────────────────────────────────────
 
 #[test]
 fn test_withdraw_success_with_token_transfer() {
@@ -1026,8 +980,6 @@ fn test_withdraw_not_owner() {
     client.withdraw(&from, &50);
 }
 
-// ─── auto-pay storage isolation tests ────────────────────────────────────────
-
 #[test]
 fn test_auto_pay_multiple_vaults_no_interference() {
     use crate::storage::{read_auto_pay, write_auto_pay};
@@ -1121,8 +1073,6 @@ fn test_trigger_auto_pay_inactive_vault_returns_vault_inactive() {
         Err(Ok(err)) if err == Error::from_contract_error(EscrowError::VaultInactive as u32)
     ));
 }
-
-// ─── cancel_vault tests ──────────────────────────────────────────────
 
 #[test]
 fn test_cancel_vault_refunds_balance() {
@@ -1241,8 +1191,6 @@ fn test_cancel_vault_non_owner_panics() {
         .cancel_vault(&from);
 }
 
-// ─── get_auto_pay_count tests ─────────────────────────────────────────────────
-
 #[test]
 fn test_get_auto_pay_count_returns_zero_before_any_rules() {
     let env = Env::default();
@@ -1298,8 +1246,6 @@ fn test_get_auto_pay_count_increments_with_multiple_rules() {
     assert_eq!(client.get_auto_pay_count(), 3);
 }
 
-// ─── initialize tests ──────────────────────────────────────────────
-
 #[test]
 fn test_initialize_twice_returns_already_initialized() {
     let env = Env::default();
@@ -1318,8 +1264,6 @@ fn test_initialize_twice_returns_already_initialized() {
         Err(Ok(err)) if err == Error::from_contract_error(EscrowError::AlreadyInitialized as u32)
     ));
 }
-
-// ─── get_auto_pay tests ──────────────────────────────────────────────
 
 #[test]
 fn test_get_auto_pay_returns_rule_after_setup() {
@@ -1377,8 +1321,6 @@ fn test_get_auto_pay_returns_none_for_unknown_rule() {
     );
 }
 
-// ─── auto-pay self-payment test ──────────────────────────────────────────────
-
 #[test]
 fn test_auto_pay_self_payment_fails() {
     let env = Env::default();
@@ -1388,24 +1330,18 @@ fn test_auto_pay_self_payment_fails() {
     let owner = Address::generate(&env);
     create_vault(&env, &contract_id, &from, &owner, &token, 1000);
 
-    // Attempt to setup auto-pay with from == to (self-payment)
     let result = client.try_setup_auto_pay(&from, &from, &100, &86400);
     assert!(matches!(
         result,
 Err(Ok(err)) if err == EscrowError::SelfPaymentNotAllowed    ));
 }
 
-/// Happy path: setup an auto-pay rule, cancel it, then confirm the rule is gone.
-///
-/// `get_auto_pay` must return `None` after a successful cancellation, proving
-/// the persistent storage entry was actually deleted rather than just marked.
 #[test]
 fn test_cancel_auto_pay_success() {
     let env = Env::default();
     env.mock_all_auths();
     let (contract_id, client, token, _token_admin, from, to) = setup_test(&env);
 
-    // Create a funded vault so setup_auto_pay can verify it exists.
     create_vault(
         &env,
         &contract_id,
@@ -1415,30 +1351,21 @@ fn test_cancel_auto_pay_success() {
         1_000,
     );
 
-    // Register an auto-pay rule.
     let rule_id = client.setup_auto_pay(&from, &to, &100, &86_400);
 
-    // Confirm the rule is present before cancellation.
     assert!(
         client.get_auto_pay(&from, &rule_id).is_some(),
         "rule must exist before cancel_auto_pay"
     );
 
-    // Cancel the rule.
     client.cancel_auto_pay(&from, &rule_id);
 
-    // After cancellation get_auto_pay must return None — the record is deleted.
     assert!(
         client.get_auto_pay(&from, &rule_id).is_none(),
         "get_auto_pay must return None after cancel_auto_pay"
     );
 }
 
-/// Core acceptance criterion: calling `trigger_auto_pay` after `cancel_auto_pay`
-/// must panic (return an error) with `AutoPayNotFound`.
-///
-/// This is the primary invariant for the cancel feature: a cancelled rule is
-/// indistinguishable from a rule that was never created.
 #[test]
 fn test_cancel_auto_pay_then_trigger_panics_with_not_found() {
     let env = Env::default();
@@ -1447,19 +1374,14 @@ fn test_cancel_auto_pay_then_trigger_panics_with_not_found() {
     let owner = Address::generate(&env);
     create_vault(&env, &contract_id, &from, &owner, &token, 1_000);
 
-    // Mint tokens to the contract so trigger_auto_pay has funds to transfer.
     let token_admin_client = StellarAssetClient::new(&env, &token);
     token_admin_client.mint(&contract_id, &500);
 
-    // Register, then immediately cancel.
     let rule_id = client.setup_auto_pay(&from, &to, &100, &1);
     client.cancel_auto_pay(&from, &rule_id);
 
-    // Advance ledger so the interval check would pass if the rule still existed.
     env.ledger().set_timestamp(10_000);
 
-    // trigger_auto_pay must fail with AutoPayNotFound — NOT IntervalNotElapsed
-    // or InsufficientBalance.  The rule lookup must be the first thing that fails.
     let result = client.try_trigger_auto_pay(&from, &rule_id);
     assert!(
         matches!(
@@ -1471,10 +1393,6 @@ fn test_cancel_auto_pay_then_trigger_panics_with_not_found() {
     );
 }
 
-/// Security: a non-owner must not be able to cancel another user's auto-pay rule.
-///
-/// `cancel_auto_pay` calls `config.owner.require_auth()` which will panic when
-/// the presented auth is for a different address.
 #[test]
 #[should_panic]
 fn test_cancel_auto_pay_non_owner_panics() {
@@ -1484,15 +1402,12 @@ fn test_cancel_auto_pay_non_owner_panics() {
     let owner = Address::generate(&env);
     let non_owner = Address::generate(&env);
 
-    // Set up vault with a known owner.
     create_vault(&env, &contract_id, &from, &owner, &token, 1_000);
 
-    // Register rule as the real owner (with full auth for setup only).
     let rule_id = client
         .mock_all_auths()
         .setup_auto_pay(&from, &to, &100, &86_400);
 
-    // Attempt to cancel as non_owner — must panic because owner.require_auth() fails.
     client
         .mock_auths(&[MockAuth {
             address: &non_owner,
@@ -1506,10 +1421,6 @@ fn test_cancel_auto_pay_non_owner_panics() {
         .cancel_auto_pay(&from, &rule_id);
 }
 
-/// Edge case: attempting to cancel a rule that does not exist must return
-/// `AutoPayNotFound`.  This covers two sub-cases:
-///   1. The rule was never registered (bad rule_id).
-///   2. The rule was already cancelled (double-cancel).
 #[test]
 fn test_cancel_auto_pay_nonexistent_rule_returns_not_found() {
     let env = Env::default();
@@ -1525,7 +1436,6 @@ fn test_cancel_auto_pay_nonexistent_rule_returns_not_found() {
         1_000,
     );
 
-    // rule_id 999 was never created.
     let result = client.try_cancel_auto_pay(&from, &999u32);
     assert!(
         matches!(
@@ -1537,8 +1447,6 @@ fn test_cancel_auto_pay_nonexistent_rule_returns_not_found() {
     );
 }
 
-/// Edge case: double-cancel — cancelling a rule twice must return `AutoPayNotFound`
-/// on the second attempt rather than silently succeeding.
 #[test]
 fn test_cancel_auto_pay_double_cancel_returns_not_found() {
     let env = Env::default();
@@ -1556,10 +1464,8 @@ fn test_cancel_auto_pay_double_cancel_returns_not_found() {
 
     let rule_id = client.setup_auto_pay(&from, &to, &100, &86_400);
 
-    // First cancel — must succeed.
     client.cancel_auto_pay(&from, &rule_id);
 
-    // Second cancel — must fail because the rule no longer exists.
     let result = client.try_cancel_auto_pay(&from, &rule_id);
     assert!(
         matches!(
@@ -1571,10 +1477,6 @@ fn test_cancel_auto_pay_double_cancel_returns_not_found() {
     );
 }
 
-/// Verify that cancelling one rule does not affect sibling rules on the same vault.
-///
-/// This guards against a storage bug where a cancel could accidentally delete the
-/// wrong record due to incorrect key construction.
 #[test]
 fn test_cancel_auto_pay_does_not_affect_sibling_rules() {
     let env = Env::default();
@@ -1590,20 +1492,16 @@ fn test_cancel_auto_pay_does_not_affect_sibling_rules() {
         2_000,
     );
 
-    // Register two rules on the same vault.
     let rule_a = client.setup_auto_pay(&from, &to, &100, &86_400);
     let rule_b = client.setup_auto_pay(&from, &to, &200, &43_200);
 
-    // Cancel only rule_a.
     client.cancel_auto_pay(&from, &rule_a);
 
-    // rule_a must be gone.
     assert!(
         client.get_auto_pay(&from, &rule_a).is_none(),
         "cancelled rule_a must return None"
     );
 
-    // rule_b must be completely unaffected.
     let surviving = client.get_auto_pay(&from, &rule_b);
     assert!(
         surviving.is_some(),
@@ -1616,9 +1514,6 @@ fn test_cancel_auto_pay_does_not_affect_sibling_rules() {
     );
 }
 
-/// Verify that cancelling a rule on vault A does not affect a same-numbered rule
-/// on vault B.  This is a cross-vault variant of the sibling isolation test and
-/// directly validates that the composite key (from, rule_id) is correctly scoped.
 #[test]
 fn test_cancel_auto_pay_cross_vault_isolation() {
     let env = Env::default();
@@ -1628,7 +1523,6 @@ fn test_cancel_auto_pay_cross_vault_isolation() {
     let vault_a = from.clone();
     let vault_b = to.clone();
 
-    // Both vaults need config + state so setup_auto_pay succeeds for each.
     create_vault(
         &env,
         &contract_id,
@@ -1646,33 +1540,24 @@ fn test_cancel_auto_pay_cross_vault_isolation() {
         1_000,
     );
 
-    // Each vault gets rule_id = 0 (first rule).
     let rule_a = client.setup_auto_pay(&vault_a, &vault_b, &100, &86_400);
     let rule_b = client.setup_auto_pay(&vault_b, &vault_a, &200, &43_200);
 
     assert_eq!(rule_a, 0, "first rule on vault_a must have id 0");
-    // rule_b may be 1 depending on the global counter; what matters is that
-    // vault_b has its own rule regardless of the numeric ID.
 
-    // Cancel vault_a's rule.
     client.cancel_auto_pay(&vault_a, &rule_a);
 
-    // vault_a rule gone.
     assert!(
         client.get_auto_pay(&vault_a, &rule_a).is_none(),
         "vault_a rule must be deleted"
     );
 
-    // vault_b rule untouched — use the returned rule_b id.
     assert!(
         client.get_auto_pay(&vault_b, &rule_b).is_some(),
         "vault_b rule must survive cancellation on vault_a"
     );
 }
 
-/// Verify that `cancel_auto_pay` fails with `VaultNotFound` when called for a
-/// commitment that has no vault at all.  This guards the auth path — without a
-/// vault there is no config, so we cannot resolve an owner.
 #[test]
 fn test_cancel_auto_pay_vault_not_found() {
     let env = Env::default();
@@ -1692,12 +1577,6 @@ fn test_cancel_auto_pay_vault_not_found() {
     );
 }
 
-// ─── is_vault_active tests ────────────────────────────────────────────────────
-
-/// A vault that has been created (and not cancelled) must return `Some(true)`.
-///
-/// This is the primary happy-path: the commitment exists in storage and
-/// `is_active` is `true`.
 #[test]
 fn test_is_vault_active_returns_some_true_for_active_vault() {
     let env = Env::default();
@@ -1720,10 +1599,6 @@ fn test_is_vault_active_returns_some_true_for_active_vault() {
     );
 }
 
-/// A vault that has been cancelled must return `Some(false)`.
-///
-/// This proves the query distinguishes a cancelled vault from one that
-/// was never created — the whole point of this three-way return type.
 #[test]
 fn test_is_vault_active_returns_some_false_for_cancelled_vault() {
     let env = Env::default();
@@ -1739,7 +1614,6 @@ fn test_is_vault_active_returns_some_false_for_cancelled_vault() {
         0,
     );
 
-    // Cancel the vault so is_active becomes false.
     client.cancel_vault(&from);
 
     assert_eq!(
@@ -1749,16 +1623,11 @@ fn test_is_vault_active_returns_some_false_for_cancelled_vault() {
     );
 }
 
-/// A commitment that was never deposited into must return `None`.
-///
-/// This covers the "vault does not exist" branch: no `VaultState` record
-/// exists in storage, so the function must return `None` rather than panic.
 #[test]
 fn test_is_vault_active_returns_none_for_nonexistent_vault() {
     let env = Env::default();
     let (_, client, _, _, _, _) = setup_test(&env);
 
-    // Use a commitment seed that was never passed to create_vault.
     let nonexistent = BytesN::from_array(&env, &[0xDEu8; 32]);
 
     assert_eq!(
