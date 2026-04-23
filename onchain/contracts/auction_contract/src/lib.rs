@@ -12,6 +12,7 @@ use crate::errors::AuctionError;
 use crate::events::{AUCTION_CLOSED, AUCTION_CREATED, BID_PLACED, BID_REFUNDED, USERNAME_CLAIMED};
 use crate::types::AuctionStatus;
 
+/// Internal helper to ensure event symbols are included in the WASM.
 #[allow(dead_code)]
 fn _touch_event_symbols() {
     let _ = (

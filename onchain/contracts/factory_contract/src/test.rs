@@ -15,17 +15,21 @@ struct StubContract;
 impl StubContract {}
 
 fn setup_factory(env: &Env) -> (Address, FactoryContractClient<'_>, Address, Address) {
+    env.mock_all_auths();
     let factory_id = env.register(FactoryContract, ());
     let factory = FactoryContractClient::new(env, &factory_id);
+    let owner = Address::generate(env);
     let auction_contract = env.register(StubContract, ());
     let core_contract = env.register(StubContract, ());
 
+    factory.initialize(&owner);
     factory.configure(&auction_contract, &core_contract);
 
     (factory_id, factory, auction_contract, core_contract)
 }
 
 fn setup_unconfigured_factory(env: &Env) -> (Address, FactoryContractClient<'_>) {
+    env.mock_all_auths();
     let factory_id = env.register(FactoryContract, ());
     let factory = FactoryContractClient::new(env, &factory_id);
     (factory_id, factory)
@@ -333,4 +337,96 @@ fn contract_getters_follow_soroban_convention() {
     let (_, factory, auction_contract, core_contract) = setup_factory(&env);
     assert_eq!(factory.auction_contract(), Some(auction_contract));
     assert_eq!(factory.core_contract(), Some(core_contract));
+}
+
+#[test]
+fn test_rbac_roles() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let factory_id = env.register(FactoryContract, ());
+    let factory = FactoryContractClient::new(&env, &factory_id);
+    let owner = Address::generate(&env);
+    let admin = Address::generate(&env);
+    let operator = Address::generate(&env);
+
+    factory.initialize(&owner);
+    assert_eq!(factory.get_owner(), Some(owner.clone()));
+    assert_eq!(factory.get_admin(), Some(owner.clone()));
+    assert_eq!(factory.get_operator(), Some(owner.clone()));
+
+    // Owner sets admin
+    env.mock_auths(&[MockAuth {
+        address: &owner,
+        invoke: &MockAuthInvoke {
+            contract: &factory_id,
+            fn_name: "set_admin",
+            args: (admin.clone(),).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    factory.set_admin(&admin);
+    assert_eq!(factory.get_admin(), Some(admin.clone()));
+
+    // Admin sets operator
+    env.mock_auths(&[MockAuth {
+        address: &admin,
+        invoke: &MockAuthInvoke {
+            contract: &factory_id,
+            fn_name: "set_operator",
+            args: (operator.clone(),).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    factory.set_operator(&operator);
+    assert_eq!(factory.get_operator(), Some(operator.clone()));
+
+    // Operator configures
+    let auction = Address::generate(&env);
+    let core = Address::generate(&env);
+    env.mock_auths(&[MockAuth {
+        address: &operator,
+        invoke: &MockAuthInvoke {
+            contract: &factory_id,
+            fn_name: "configure",
+            args: (auction.clone(), core.clone()).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    factory.configure(&auction, &core);
+    assert_eq!(factory.auction_contract(), Some(auction));
+    assert_eq!(factory.core_contract(), Some(core));
+}
+
+#[test]
+#[should_panic] // HostError: Error(Auth, InvalidAction)
+fn test_rbac_unauthorized_configure() {
+    let env = Env::default();
+    let factory_id = env.register(FactoryContract, ());
+    let factory = FactoryContractClient::new(&env, &factory_id);
+    let owner = Address::generate(&env);
+    let malicious = Address::generate(&env);
+
+    env.mock_auths(&[MockAuth {
+        address: &owner,
+        invoke: &MockAuthInvoke {
+            contract: &factory_id,
+            fn_name: "initialize",
+            args: (owner.clone(),).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    factory.initialize(&owner);
+
+    let auction = Address::generate(&env);
+    let core = Address::generate(&env);
+    env.mock_auths(&[MockAuth {
+        address: &malicious,
+        invoke: &MockAuthInvoke {
+            contract: &factory_id,
+            fn_name: "configure",
+            args: (auction.clone(), core.clone()).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    factory.configure(&auction, &core);
 }

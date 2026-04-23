@@ -34,6 +34,14 @@ impl Contract {
 
     pub fn get_contract_owner(e: Env) -> Address { Admin::get_contract_owner(e) }
 
+    pub fn get_admin(e: Env) -> Address { Admin::get_admin(e) }
+
+    pub fn get_operator(e: Env) -> Address { Admin::get_operator(e) }
+
+    pub fn set_admin(e: Env, a: Address) { Admin::set_admin(e, a) }
+
+    pub fn set_operator(e: Env, o: Address) { Admin::set_operator(e, o) }
+
     pub fn get_smt_root(e: Env) -> BytesN<32> { Admin::get_smt_root(e) }
 
     pub fn update_smt_root(e: Env, r: BytesN<32>) { Admin::update_smt_root(e, r) }

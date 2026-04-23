@@ -234,6 +234,7 @@ impl AddressManager {
         storage::has_shielded_address(&env, &username_hash)
     }
 
+    /// Validates the format of an address based on the chain type.
     fn validate_address(chain: &ChainType, address: &Bytes) -> bool {
         let len = address.len();
         match chain {

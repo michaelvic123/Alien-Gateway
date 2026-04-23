@@ -1,7 +1,9 @@
 use crate::types::{AuctionState, AuctionStatus, Bid, InstanceKey};
 use soroban_sdk::{contracttype, Address, BytesN, Env, Vec};
 
+/// The amount of ledger entries to bump persistent storage by.
 pub(crate) const PERSISTENT_BUMP_AMOUNT: u32 = 518_400; // 30 * 24 * 3600 / 5
+/// The threshold for persistent storage TTL to trigger an auto-bump.
 pub(crate) const PERSISTENT_LIFETIME_THRESHOLD: u32 = 120_960; // 7 * 24 * 3600 / 5
 
 #[contracttype]

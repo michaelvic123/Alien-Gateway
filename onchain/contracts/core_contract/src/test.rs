@@ -17,6 +17,8 @@ fn setup(env: &Env) -> (Address, ContractClient<'_>) {
 
 fn setup_with_root(env: &Env) -> (Address, ContractClient<'_>, BytesN<32>) {
     let (contract_id, client) = setup(env);
+    let owner = Address::generate(env);
+    client.initialize(&owner);
     let root = BytesN::from_array(env, &[1u8; 32]);
     env.as_contract(&contract_id, || {
         SmtRoot::update_root(env, root.clone());
@@ -792,15 +794,70 @@ fn test_smt_root_update_emits_event() {
 }
 
 #[test]
-fn test_require_owner_succeeds_for_owner() {
+fn test_rbac_roles() {
     let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(Contract, ());
+    let client = ContractClient::new(&env, &contract_id);
+    let owner = Address::generate(&env);
+    let admin = Address::generate(&env);
+    let operator = Address::generate(&env);
+
+    client.initialize(&owner);
+    assert_eq!(client.get_contract_owner(), owner.clone());
+    assert_eq!(client.get_admin(), owner.clone());
+    assert_eq!(client.get_operator(), owner.clone());
+
+    // Owner sets admin
+    env.mock_auths(&[MockAuth {
+        address: &owner,
+        invoke: &MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "set_admin",
+            args: (admin.clone(),).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    client.set_admin(&admin);
+    assert_eq!(client.get_admin(), admin.clone());
+
+    // Admin sets operator
+    env.mock_auths(&[MockAuth {
+        address: &admin,
+        invoke: &MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "set_operator",
+            args: (operator.clone(),).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    client.set_operator(&operator);
+    assert_eq!(client.get_operator(), operator.clone());
+
+    // Operator updates SMT root
+    let new_root = BytesN::from_array(&env, &[42u8; 32]);
+    env.mock_auths(&[MockAuth {
+        address: &operator,
+        invoke: &MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "update_smt_root",
+            args: (new_root.clone(),).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    client.update_smt_root(&new_root);
+    assert_eq!(client.get_smt_root(), new_root);
+}
+
+#[test]
+fn test_update_smt_root_success() {
+    let env = Env::default();
+    env.mock_all_auths();
     let (contract_id, client) = setup(&env);
     let owner = Address::generate(&env);
     let new_root = BytesN::from_array(&env, &[99u8; 32]);
 
-    env.as_contract(&contract_id, || {
-        crate::storage::set_owner(&env, &owner);
-    });
+    client.initialize(&owner);
 
     env.mock_auths(&[MockAuth {
         address: &owner,
@@ -818,16 +875,23 @@ fn test_require_owner_succeeds_for_owner() {
 }
 
 #[test]
-fn test_require_owner_panics_for_non_owner() {
+fn test_require_operator_panics_for_non_operator() {
     let env = Env::default();
-    let (contract_id, _) = setup(&env);
+    let (contract_id, client) = setup(&env);
     let owner = Address::generate(&env);
     let attacker = Address::generate(&env);
     let new_root = BytesN::from_array(&env, &[98u8; 32]);
 
-    env.as_contract(&contract_id, || {
-        crate::storage::set_owner(&env, &owner);
-    });
+    env.mock_auths(&[MockAuth {
+        address: &owner,
+        invoke: &MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "initialize",
+            args: (owner.clone(),).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    client.initialize(&owner);
 
     env.mock_auths(&[MockAuth {
         address: &attacker,

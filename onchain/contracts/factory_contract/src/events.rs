@@ -1,10 +1,14 @@
 use soroban_sdk::{symbol_short, Address, BytesN, Env, Symbol};
 
+/// Event emitted when a username is successfully deployed.
 pub const USERNAME_DEPLOYED: Symbol = symbol_short!("USR_DEP");
-#[allow(dead_code)]
+/// Event emitted when ownership of a username is transferred.
 pub const OWNERSHIP_TRANSFERRED: Symbol = symbol_short!("OWN_TRF");
+/// Event emitted when a role is granted to an address.
+pub const ROLE_GRANTED: Symbol = symbol_short!("ROLE_GNT");
 
 #[allow(deprecated)]
+/// Emits a username deployment event.
 pub fn emit_username_deployed(
     env: &Env,
     username_hash: &BytesN<32>,
@@ -19,6 +23,7 @@ pub fn emit_username_deployed(
 
 #[allow(dead_code)]
 #[allow(deprecated)]
+/// Emits an ownership transfer event.
 pub fn emit_ownership_transferred(
     env: &Env,
     username_hash: &BytesN<32>,
