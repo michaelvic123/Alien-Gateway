@@ -35,7 +35,7 @@ pub enum AuctionKey {
 }
 
 #[contracttype]
-#[derive(Clone)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AuctionConfig {
     pub username_hash: BytesN<32>,
     pub start_time: u64,
@@ -44,7 +44,7 @@ pub struct AuctionConfig {
 }
 
 #[contracttype]
-#[derive(Clone)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AuctionState {
     pub config: AuctionConfig,
     pub status: AuctionStatus,
@@ -53,7 +53,7 @@ pub struct AuctionState {
 }
 
 #[contracttype]
-#[derive(Clone)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Bid {
     pub bidder: Address,
     pub amount: i128,
